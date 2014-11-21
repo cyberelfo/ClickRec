@@ -6,15 +6,25 @@ from itertools import combinations
 import sys
 import time
 from progress.bar import Bar
+import ConfigParser
 
 # transactions = {}
 frequent_size = {}
-support = 0.02
+support = 0.01
 # num_linhas = 3000
 num_linhas = 10000000
-nome_tabela = "stream_new"
-# nome_tabela = "stream_new_valida"
-produto = 3
+nome_tabela = "stream_g1"
+# nome_tabela = "stream_valida"
+
+# G1 = 1
+# GE = 2
+# Ego = 3
+# Globotv = 4
+# GShow = 5
+# Techtudo = 6
+# Música = 7
+
+produto = 1
 
 # transactions_list = []
 
@@ -34,15 +44,22 @@ def to_transaction(linhas):
 	print "Stream to transaction..."
 	bar = Bar('Progress', max=len(_transactions))
 	commit_count = 0
-	# cursor.execute("""truncate table transaction;""")
+	cursor.execute("""truncate table transaction;""")
 
-	for transaction in _transactions.itervalues():
+	db.begin()
+
+	results = []
+	for userid, transaction in _transactions.iteritems():
 		_transactions_list.append(transaction)
-		# cursor.execute("""INSERT INTO transaction(user_id, document_id) VALUES (%s,%s)""",(userid,str(transaction)))
+		results.append([userid,str(transaction)])
+		### Uncomment 5 lines below to save to transaction table.
 		# if commit_count % 10000 == 0:
+		# 	cursor.executemany("""INSERT INTO transaction(user_id, documents) VALUES (%s,%s)""",(results))
 		# 	db.commit()
+		# 	db.begin()
+		# 	results = []
 		bar.next()
-	# db.commit()
+	db.commit()
 	bar.finish()
 
 	# import pdb; pdb.set_trace()
@@ -91,17 +108,18 @@ def frequent_items(transactions, items, count):
 	for item in items:
 		if count[item] >= (len(transactions) * support):
 			frequent_size[1].append(item)
-			print "item/count:", item, count[item]
+			# print "item/count:", item, count[item]
 
 	print ""
-	print "Frequent size 1:", len(frequent_size[1])
-	print frequent_size[1]
+	print "Frequent size [1]:", len(frequent_size[1])
+	# print frequent_size[1]
+	print_frequent(frequent_size[1], 1)
 	print "--------------"
 
 
 def frequent_itemsets(transactions_list, previous_frequent, size):
 	print ""
-	print "Size:", size
+	print "Size: [" + str(size) + "]"
 
 	frequent = set()
 	frequent_candidates_clean = []
@@ -112,7 +130,7 @@ def frequent_itemsets(transactions_list, previous_frequent, size):
 
 	print ""
 	print "previous_frequent:", len(previous_frequent)
-	print "Generating candidates size " + str(size) + "..."
+	print "Generating candidates size [" + str(size) + "]..."
 	bar = Bar('Progress', max=len(c))
 
 	if size == 2:
@@ -132,7 +150,7 @@ def frequent_itemsets(transactions_list, previous_frequent, size):
 	# import pdb; pdb.set_trace()
 
 	print ""
-	print "Checking candidates size " + str(size) + "..."
+	print "Checking candidates size [" + str(size) + "]..."
 	bar = Bar('Progress', max=len(frequent_candidates_clean))
 
 	for itemset in frequent_candidates_clean:
@@ -151,8 +169,9 @@ def frequent_itemsets(transactions_list, previous_frequent, size):
 
 	print ""
 	# print "Frequent:", frequent
-	print "Frequent size " + str(size) + ":", len(frequent_size[size])
-	print frequent_size[size]
+	print "Frequent size [" + str(size) + "]:", len(frequent_size[size])
+	# print frequent_size[size]
+	print_frequent(frequent_size[size], size)
 	# print frequent
 	print "--------------"
 
@@ -171,10 +190,32 @@ def validate_count(transactions_list, list_count):
 	total_count = 0
 	for i in list_count.itervalues():
 		total_count += i
-
-	print "Total linhas:", total_linhas
+	print "(All should be equal)"
+	print "Total rows             :", total_linhas
 	print "Total itens transaction:", total_transaction
-	print "Total count:", total_count
+	print "Total count            :", total_count
+
+def print_frequent(freq, size):
+	if size == 1:
+		for f in freq:
+			sql = """ select url
+					from document
+					where document_id = %s """ % (f)
+			cursor.execute(sql)
+			result = cursor.fetchone()
+			print result[0]
+			print " "
+	else:
+		for f in freq:
+			for doc in f:
+
+				sql = """ select url
+						from document
+						where document_id = %s """ % (doc)
+				cursor.execute(sql)
+				result = cursor.fetchone()
+				print result[0]
+			print " "
 
 if __name__ == '__main__':
 
@@ -229,6 +270,6 @@ if __name__ == '__main__':
 	tempo_execucao = stop - start 
 
 	print "Fim processamento"
-	print "Tempo de execucao (segundos):", tempo_execucao
+	print "Tempo de execucao:", time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao))
 
 	db.close()
