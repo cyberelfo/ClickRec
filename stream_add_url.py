@@ -30,7 +30,8 @@ print "Truncate table..."
 cursor.execute(""" truncate table document;""" )
 
 print "Populate table..."
-total_documents = cursor.execute(""" insert into document(document_id) select distinct document_id from stream_g1;""" )
+total_documents = cursor.execute(""" insert into document(document_id) 
+					select distinct document_id from stream_g1;""" )
 
 print "Total:", total_documents
 

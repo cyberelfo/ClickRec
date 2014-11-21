@@ -4,6 +4,7 @@
 import requests
 from BeautifulSoup import BeautifulSoup
 import MySQLdb
+from datetime import datetime
 
 url = "http://g1.globo.com"
 response = requests.get(url)
@@ -25,21 +26,24 @@ def getURL(page):
 	url = page[start_quote + 1: end_quote]
 	return url, end_quote
 
+datetime_crawl = datetime.now()
 
 db = MySQLdb.connect("localhost","root","","stream" )
 cursor = db.cursor()
-cursor.execute(""" truncate table home_g1;""" )
+
+# using set to prevent duplicate url's
+urls = set()
 
 while True:
 	url, n = getURL(page)
 	page = page[n:]
 	if url:
 		print url
-		# print type(url)
-		# print (""" insert into home_g1(url) values(%s) ;""" , (url) )
-		# cursor.execute(""" select 1; """)
-		cursor.execute(""" insert into home_g1(url) values(%s) ;""" , [url] )
+		urls.add(url)
 	else:
 		break
+
+for url in urls:
+	cursor.execute(""" insert into home_g1(url, datetime_crawl) values(%s, %s) ;""" , [url, datetime_crawl] )
 
 db.commit()
