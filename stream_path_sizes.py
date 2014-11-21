@@ -36,5 +36,15 @@ if __name__ == '__main__':
 	
 	db.commit()
 
+	cursor.execute(""" select path_size, num_users, percent 
+		from path_sizes
+		order by path_size;
+		""" )
+	results = cursor.fetchall()
+	print
+	print "Path Size - Total users - Percent"
+	for row in results:
+		print "[" +str(row[0])+ "] -", row[1], "-", str(row[2] * 100) + "%"
+
 	cursor.close()
 	db.close()
