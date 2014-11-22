@@ -5,13 +5,15 @@ import MySQLdb
 from progress.bar import Bar
 import timeit
 import csv
+import hashlib
+import time
 
 path = '/Users/franklin/Downloads/'
 filename = 'rt-actions-read-2014_11_21_16.log'
 
 def load_stream():
 	print "Truncate table..."
-	cursor.execute(""" truncate table stream;""" )
+	cursor.execute(""" truncate table stream_g1;""" )
 
 	f = open(path+filename, 'rb')
 
@@ -19,14 +21,20 @@ def load_stream():
 
 	i = 1
 	results = []
+	doc_user = set()
 	for row in reader:
 		# print row
 		if row[0] == "1":
-			results.append(row)
-			i += 1
+			if (row[2], row[4]) in doc_user:
+				pass
+			else:
+				results.append(row)
+				i += 1
+				doc_user.add((row[2], row[4]))
+
 
 		if i % 1000 == 0:
-			cursor.executemany(""" insert into stream
+			cursor.executemany(""" insert into stream_g1
 				(product_id, type, document_id, provider_id, user_id, timestamp)
 				values(%s, %s, %s, %s, %s, %s ) ;
 				""" , (results))
@@ -34,64 +42,15 @@ def load_stream():
 			results = []
 			print i
 
-	db.commit()
+	if len(results) > 0:
+		cursor.executemany(""" insert into stream
+			(product_id, type, document_id, provider_id, user_id, timestamp)
+			values(%s, %s, %s, %s, %s, %s ) ;
+			""" , (results))
+		db.commit()
+		print i
 
 	f.close()
-
-def remove_dup():
-
-	print "Truncate table..."
-	cursor.execute(""" truncate table stream_g1;""" )
-
-	print "Populate table..."
-	total_result = cursor.execute("""
-			select product_id, type, document_id, provider_id, user_id, timestamp 
-			from stream
-			where product_id = 1 
-			order by user_id, document_id, timestamp ; 
-		""" )
-
-	user_id_prev = 0
-	document_id_prev = 0
-
-	bar = Bar('Inserting', max=total_result)
-	i = 0
-	results = []
-	for row in cursor:
-		if user_id_prev <> row[4] or document_id_prev <> row[2]:
-			results.append(row)
-			i += 1
-			teste = "Append"
-			user_id_prev = row[4] 
-			document_id_prev = row[2]
-		else:
-			teste = "Igual"
-
-		# print row[4], row[2], "**", user_id_prev, document_id_prev, teste
-
-		if i % 1000 == 0:
-			cursor.executemany(""" insert into stream_g1
-				(product_id, type, document_id, provider_id, user_id, timestamp)
-				values(%s, %s, %s, %s, %s, %s ) ;
-				""" , (results) )
-
-			db.commit()
-			results = []
-
-		bar.next()
-
-	cursor.executemany(""" insert into stream_g1
-		(product_id, type, document_id, provider_id, user_id, timestamp)
-		values(%s, %s, %s, %s, %s, %s ) ;
-		""" , (results) )
-	# print "deleted", deleted
-
-	db.commit()
-
-	bar.finish()
-
-	cursor.close()
-	db.close()
 
 if __name__ == '__main__':
 
@@ -100,11 +59,11 @@ if __name__ == '__main__':
 	db = MySQLdb.connect("localhost","root","","stream" )
 	cursor = db.cursor()
 
-	cursor.execute(""" SET autocommit=0; 
-		""" )
+	cursor.execute(""" SET autocommit=0; """ )
 
 	load_stream()
-	remove_dup()
+
+	cursor.execute(""" SET autocommit=1; """ )
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 
