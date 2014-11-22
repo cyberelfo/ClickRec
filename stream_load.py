@@ -5,7 +5,6 @@ import MySQLdb
 from progress.bar import Bar
 import timeit
 import csv
-import hashlib
 import time
 
 path = '/Users/franklin/Downloads/'
