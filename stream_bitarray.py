@@ -43,20 +43,30 @@ def test_update_documents(size, document_id):
 
 def load_window(size, document_id, user_id):
 	size +=1 
-	updated = False
-	for key in dictionary:
-		if key == document_id:
-			dictionary[key].extend([True])
-			updated = True
-		else:
-			dictionary[key].extend([False])
 
-	if not updated:
- 		dictionary[document_id] = bitarray([False] * (size - 1))
- 		dictionary[document_id].extend([True])
+ 	if user_id in users:
+ 		a = users.index(user_id)
+ 		if document_id in dictionary:
+	 		dictionary[document_id][a] = 1
+	 		# print "Update!"
+	 	else:
+	 		dictionary[document_id] = bitarray([False] * (size))
+	 		dictionary[document_id][a] = 1
+	 		# print "New!"
 
- 	if user_id not in users:
+ 	else:
  		users.append(user_id)
+		updated = False
+		for key in dictionary:
+			if key == document_id:
+				dictionary[key].extend([True])
+				updated = True
+			else:
+				dictionary[key].extend([False])
+
+		if not updated:
+	 		dictionary[document_id] = bitarray([False] * (size - 1))
+	 		dictionary[document_id].extend([True])
 
 def slide_window(size, document_id, user_id):
  	if user_id in users:
