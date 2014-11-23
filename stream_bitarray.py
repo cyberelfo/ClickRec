@@ -128,16 +128,14 @@ if __name__ == '__main__':
 		else:
 			slide_window(row[0], row[1][4], row[1][2])
 		if row[0] % 1000 == 0:
-			print row[0]
 			stop_t = timeit.default_timer()
 			tempo_execucao = stop_t - start_t
-			print "Tempo de execucao:", time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao))
+			print row[0], "- Tempo de execucao:", \
+				time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
+				"Window size:", len(users), "Pages:", len(dictionary)
 			start_t = stop_t
 
 	f.close()
-
-	print "Users:", len(users)
-	print "Docs:", len(dictionary)
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 
