@@ -3,6 +3,7 @@ import csv
 import time
 from pprint import pprint
 from bitarray import bitarray
+import argparse
 
 path = '/Users/franklin/Downloads/'
 filename = 'rt-actions-read-2014_11_21_16.log'
@@ -10,7 +11,17 @@ filename = 'rt-actions-read-2014_11_21_16.log'
 
 dictionary = {} # armazenar todos os documentos 
 users = []
-window_size = 1000
+
+parser = argparse.ArgumentParser()
+parser.add_argument("num_users", type=int, 
+	help="Number of users / size of the window")
+parser.add_argument("num_transactions", nargs='?', default=0, type=int, 
+	help="Number of transactions to load, 0 = all")
+args = parser.parse_args()
+
+window_size = args.num_users
+num_transactions = args.num_transactions
+# window_size = 1000
 
 def populate_array(size, user_id, document_id):
 
@@ -110,7 +121,7 @@ if __name__ == '__main__':
 
 	for row in enumerate(reader):
 		# print row
-		if row[0] > 10000: 
+		if num_transactions > 0 and row[0] > num_transactions: 
 			break
 		if len(users) < window_size:
 			load_window(row[0], row[1][4], row[1][2])
@@ -122,8 +133,6 @@ if __name__ == '__main__':
 			tempo_execucao = stop_t - start_t
 			print "Tempo de execucao:", time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao))
 			start_t = stop_t
-
-
 
 	f.close()
 
