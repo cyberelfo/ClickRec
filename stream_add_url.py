@@ -4,6 +4,7 @@
 import MySQLdb
 import solr
 import timeit
+import time
 from progress.bar import Bar
 import datetime
 import ConfigParser
@@ -52,6 +53,7 @@ for result in cursor:
 		url = response.results[0]['url']
 		title = response.results[0]['title']
 		publish_date = response.results[0]['issued']
+		section = response.results[0]['section'][0]
 
 		# import pdb; pdb.set_trace()
 
@@ -79,11 +81,12 @@ for result in cursor:
 							set url = %s,
 								title = %s,
 								body = %s,
-								publish_date = %s
+								publish_date = %s,
+								section = %s
 							where document_id = %s """
 		# import pdb; pdb.set_trace()
 
-		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), str(result[0])))
+		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), section,str(result[0])))
 		i += 1
 		if i % 100 == 0:
 			db.commit()
@@ -97,9 +100,6 @@ db.commit()
 
 cursor_g1.close()
 db_g1.close()
-
-cursor_esp.close()
-db_esp.close()
 
 cursor.close()
 db.close()

@@ -26,8 +26,10 @@ CREATE TABLE `document` (
   `title` varchar(1000) DEFAULT NULL,
   `body` longtext,
   `publish_date` datetime DEFAULT NULL,
+  `section` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`document_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
 
 CREATE TABLE `count_doc_hits` (
   `document_id` bigint(11) unsigned NOT NULL,
