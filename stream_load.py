@@ -6,9 +6,13 @@ from progress.bar import Bar
 import timeit
 import csv
 import time
+import ConfigParser
 
-path = '/Users/franklin/Downloads/'
-filename = 'rt-actions-read-2014_11_21_16.log'
+config = ConfigParser.ConfigParser()
+config.read("./stream.ini")
+
+path = config.get('main', 'path')
+filename = config.get('main', 'filename')
 
 def load_stream():
 	print "Truncate table..."

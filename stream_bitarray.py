@@ -7,10 +7,13 @@ import time
 from pprint import pprint
 from bitarray import bitarray
 import argparse
+import ConfigParser
 
-path = '/Users/franklin/Downloads/'
-filename = 'rt-actions-read-2014_11_21_16.log'
-# filename = 'teste.log'
+config = ConfigParser.ConfigParser()
+config.read("./stream.ini")
+
+path = config.get('main', 'path')
+filename = config.get('main', 'filename')
 
 dictionary = {} # armazenar todos os documentos 
 users = []
