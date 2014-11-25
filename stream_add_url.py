@@ -53,6 +53,7 @@ for result in cursor:
 		url = response.results[0]['url']
 		title = response.results[0]['title']
 		publish_date = response.results[0]['issued']
+		modify_date = response.results[0]['modified']
 		section = response.results[0]['section'][0]
 
 		# import pdb; pdb.set_trace()
@@ -82,11 +83,12 @@ for result in cursor:
 								title = %s,
 								body = %s,
 								publish_date = %s,
+								modify_date = %s,
 								section = %s
 							where document_id = %s """
 		# import pdb; pdb.set_trace()
 
-		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), section,str(result[0])))
+		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), modify_date.replace(tzinfo=None), section,str(result[0])))
 		i += 1
 		if i % 100 == 0:
 			db.commit()
