@@ -6,7 +6,9 @@ from progress.bar import Bar
 import timeit
 import csv
 import time
+import datetime
 import ConfigParser
+
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -14,9 +16,17 @@ config.read("./stream.ini")
 path = config.get('main', 'path')
 filename = config.get('main', 'filename')
 
+def file_len(fname):
+	with open(fname) as f:
+		for i, l in enumerate(f):
+			pass
+	return i + 1
+	
 def load_stream():
 	print "Truncate table..."
 	cursor.execute(""" truncate table stream_g1;""" )
+
+	total_lines = file_len(path+filename)
 
 	f = open(path+filename, 'rb')
 
@@ -25,12 +35,20 @@ def load_stream():
 	i = 1
 	results = []
 	doc_user = set()
+
+	print "Loading table..."
+	bar = Bar('Progress', max=total_lines)
+
 	for row in reader:
-		# print row
-		if row[0] == "1":
+		bar.next()
+		# Select only pageviews from product 1 (G1)
+		if row[0] == "1":			
 			if (row[2], row[4]) in doc_user:
+				# Ignore duplicate user+document 
 				pass
 			else:
+				row_datetime = datetime.datetime.fromtimestamp(int(row[5][:10]))
+				row.append(row_datetime)
 				results.append(row)
 				i += 1
 				doc_user.add((row[2], row[4]))
@@ -38,22 +56,23 @@ def load_stream():
 
 		if i % 1000 == 0:
 			cursor.executemany(""" insert into stream_g1
-				(product_id, type, document_id, provider_id, user_id, timestamp)
-				values(%s, %s, %s, %s, %s, %s ) ;
+				(product_id, type, document_id, provider_id, user_id, timestamp, stream_datetime)
+				values(%s, %s, %s, %s, %s, %s, %s ) ;
 				""" , (results))
 			db.commit()
 			results = []
-			print i
+			# print i
 
 	if len(results) > 0:
-		cursor.executemany(""" insert into stream
-			(product_id, type, document_id, provider_id, user_id, timestamp)
-			values(%s, %s, %s, %s, %s, %s ) ;
+		cursor.executemany(""" insert into stream_g1
+			(product_id, type, document_id, provider_id, user_id, timestamp, stream_datetime)
+			values(%s, %s, %s, %s, %s, %s, %s ) ;
 			""" , (results))
 		db.commit()
 		print i
 
 	f.close()
+	bar.finish()
 
 if __name__ == '__main__':
 

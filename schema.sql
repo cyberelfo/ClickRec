@@ -6,6 +6,7 @@ CREATE TABLE `stream` (
   `provider_id` int(11) DEFAULT NULL,
   `user_id` bigint(20) DEFAULT NULL,
   `timestamp` varchar(13) DEFAULT NULL,
+  `stream_datetime` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -17,6 +18,7 @@ CREATE TABLE `stream_g1` (
   `provider_id` int(11) DEFAULT NULL,
   `user_id` bigint(20) DEFAULT NULL,
   `timestamp` varchar(13) DEFAULT NULL,
+  `stream_datetime` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -56,6 +58,6 @@ CREATE TABLE `path_sizes` (
 CREATE TABLE `home_g1` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `url` varchar(1000) DEFAULT NULL,
+  `datetime_crawl` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-
