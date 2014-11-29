@@ -61,7 +61,6 @@ def load_stream():
 				""" , (results))
 			db.commit()
 			results = []
-			# print i
 
 	if len(results) > 0:
 		cursor.executemany(""" insert into stream_g1
@@ -69,7 +68,6 @@ def load_stream():
 			values(%s, %s, %s, %s, %s, %s, %s ) ;
 			""" , (results))
 		db.commit()
-		print i
 
 	f.close()
 	bar.finish()
