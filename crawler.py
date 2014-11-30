@@ -83,6 +83,8 @@ while True:
 		break
 
 for url in urls:
-	cursor.execute(""" insert into home_g1(url, datetime_crawl) values(%s, %s) ;""" , [url, datetime_crawl] )
+	cursor.execute(""" insert into home_g1
+		(url, datetime_crawl, url_md5) 
+		values(%s, %s, md5(%s) ;""" , [url, datetime_crawl, url] )
 
 db.commit()

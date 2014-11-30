@@ -23,8 +23,8 @@ def file_len(fname):
 	return i + 1
 	
 def load_stream():
-	print "Truncate table..."
-	cursor.execute(""" truncate table stream_g1;""" )
+	print "Delete table..."
+	cursor.execute(""" delete from stream_g1 where filename = %s ;""", [filename] )
 
 	total_lines = file_len(path+filename)
 
@@ -57,7 +57,8 @@ def load_stream():
 
 		if i % 1000 == 0:
 			cursor.executemany(""" insert into stream_g1
-				(product_id, type, document_id, provider_id, user_id, timestamp, stream_datetime, filename)
+				(product_id, type, document_id, provider_id, user_id, 
+					timestamp, stream_datetime, filename)
 				values(%s, %s, %s, %s, %s, %s, %s, %s ) ;
 				""" , (results))
 			db.commit()
@@ -65,8 +66,9 @@ def load_stream():
 
 	if len(results) > 0:
 		cursor.executemany(""" insert into stream_g1
-			(product_id, type, document_id, provider_id, user_id, timestamp, stream_datetime)
-			values(%s, %s, %s, %s, %s, %s, %s ) ;
+			(product_id, type, document_id, provider_id, user_id, 
+				timestamp, stream_datetime, filename)
+			values(%s, %s, %s, %s, %s, %s, %s, %s ) ;
 			""" , (results))
 		db.commit()
 

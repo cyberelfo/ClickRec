@@ -87,12 +87,13 @@ for result in cursor:
 								body = %s,
 								publish_date = %s,
 								modify_date = %s,
-								section = %s
+								section = %s,
+								url_md5 = md5(%s)
 							where document_id = %s
 							and filename = %s """
 		# import pdb; pdb.set_trace()
 
-		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), modify_date.replace(tzinfo=None), section,str(result[0]), filename))
+		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), modify_date.replace(tzinfo=None), section,url, str(result[0]), filename))
 		i += 1
 		if i % 100 == 0:
 			db.commit()

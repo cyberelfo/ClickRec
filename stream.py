@@ -119,6 +119,7 @@ def frequent_items(transactions, items, count):
 	print "Frequent size [1]:", len(frequent_size[1])
 	# print frequent_size[1]
 	print_frequent(frequent_size[1], 1)
+	save_frequent(frequent_size[1], 1)
 	print "--------------"
 
 
@@ -177,6 +178,7 @@ def frequent_itemsets(transactions_list, previous_frequent, size):
 	print "Frequent size [" + str(size) + "]:", len(frequent_size[size])
 	# print frequent_size[size]
 	print_frequent(frequent_size[size], size)
+	save_frequent(frequent_size[size], size)
 	# print frequent
 	print "--------------"
 
@@ -199,6 +201,25 @@ def validate_count(transactions_list, list_count):
 	print "Total rows             :", total_linhas
 	print "Total itens transaction:", total_transaction
 	print "Total count            :", total_count
+
+def save_frequent(freq, size):
+	if size == 1:
+		cursor.execute(""" delete from itemset where filename = %s ;""", [filename] )
+
+		for f in enumerate(freq):
+			cursor.execute(""" insert into itemset 
+				(filename, itemset_size, itemset_id, document_id)
+				values (%s, %s, %s, %s);
+				""", [filename, size, f[0], f[1]] )
+
+	else:
+		for f in enumerate(freq):
+			for doc in f[1]:
+				cursor.execute(""" insert into itemset 
+					(filename, itemset_size, itemset_id, document_id)
+					values (%s, %s, %s, %s);
+					""", [filename, size, f[0], doc] )
+	db.commit()
 
 def print_frequent(freq, size):
 	if size == 1:

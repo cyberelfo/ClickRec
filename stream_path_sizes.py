@@ -22,6 +22,7 @@ if __name__ == '__main__':
 
 	print "Populate tables..."
 	cursor.execute(""" insert into user_path_size
+		(user_id, path_size, filename)
 		select user_id, count(*) path_size, filename
 		from stream_g1
 		where filename = %s

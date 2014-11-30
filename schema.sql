@@ -16,16 +16,19 @@ CREATE TABLE `document` (
   `section` varchar(255) DEFAULT NULL,
   `modify_date` datetime DEFAULT NULL,
   `filename` varchar(50) DEFAULT NULL,
+  `url_md5` char(32) DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `idx01` (`document_id`,`filename`)
+  KEY `idx01` (`document_id`,`filename`),
+  KEY `idx02` (`url_md5`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
-
 
 CREATE TABLE `home_g1` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `url` varchar(1000) DEFAULT NULL,
   `datetime_crawl` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`)
+  `url_md5` char(32) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx01` (`url_md5`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 CREATE TABLE `path_sizes` (
@@ -62,17 +65,6 @@ CREATE TABLE `stream_g1` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
-CREATE TABLE `temp` (
-  `document_id` bigint(11) unsigned NOT NULL,
-  `url` varchar(1000) CHARACTER SET utf8 DEFAULT NULL,
-  `title` varchar(1000) CHARACTER SET utf8 DEFAULT NULL,
-  `body` longtext CHARACTER SET utf8,
-  `publish_date` datetime DEFAULT NULL,
-  `section` varchar(255) CHARACTER SET utf8 DEFAULT NULL,
-  `modify_date` datetime DEFAULT NULL,
-  `filename` varchar(50) CHARACTER SET utf8 DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=latin1;
-
 CREATE TABLE `transaction` (
   `user_id` bigint(11) NOT NULL,
   `documents` text,
@@ -84,4 +76,13 @@ CREATE TABLE `user_path_size` (
   `path_size` int(11) DEFAULT NULL,
   `filename` varchar(50) DEFAULT NULL,
   PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `itemset` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `filename` varchar(50) DEFAULT NULL,
+  `itemset_size` smallint(6) DEFAULT NULL,
+  `itemset_id` smallint(6) DEFAULT NULL,
+  `document_id` bigint(20) DEFAULT NULL,
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
