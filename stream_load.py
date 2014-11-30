@@ -49,6 +49,7 @@ def load_stream():
 			else:
 				row_datetime = datetime.datetime.fromtimestamp(int(row[5][:10]))
 				row.append(row_datetime)
+				row.append(filename)
 				results.append(row)
 				i += 1
 				doc_user.add((row[2], row[4]))
@@ -56,8 +57,8 @@ def load_stream():
 
 		if i % 1000 == 0:
 			cursor.executemany(""" insert into stream_g1
-				(product_id, type, document_id, provider_id, user_id, timestamp, stream_datetime)
-				values(%s, %s, %s, %s, %s, %s, %s ) ;
+				(product_id, type, document_id, provider_id, user_id, timestamp, stream_datetime, filename)
+				values(%s, %s, %s, %s, %s, %s, %s, %s ) ;
 				""" , (results))
 			db.commit()
 			results = []

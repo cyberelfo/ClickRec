@@ -8,6 +8,11 @@ import time
 from progress.bar import Bar
 import ConfigParser
 
+config = ConfigParser.ConfigParser()
+config.read("./stream.ini")
+
+filename = config.get('main', 'filename')
+
 # transactions = {}
 frequent_size = {}
 support = 0.01
@@ -200,7 +205,8 @@ def print_frequent(freq, size):
 		for f in freq:
 			sql = """ select url
 					from document
-					where document_id = %s """ % (f)
+					where document_id = %s 
+					and filename = '%s' """ % (f, filename)
 			cursor.execute(sql)
 			result = cursor.fetchone()
 			print result[0]
@@ -211,7 +217,8 @@ def print_frequent(freq, size):
 
 				sql = """ select url
 						from document
-						where document_id = %s """ % (doc)
+						where document_id = %s 
+						and filename = '%s' """ % (doc, filename)
 				cursor.execute(sql)
 				result = cursor.fetchone()
 				print result[0]
@@ -229,7 +236,8 @@ if __name__ == '__main__':
 						provider_id, user_id, timestamp 
 						from %s 
 						where product_id = %s
-						limit %s """ % (nome_tabela, produto, num_linhas)
+						and filename = '%s' 
+						limit %s """ % (nome_tabela, produto, filename, num_linhas)
 
 	print "Executing query..."
 	cursor.execute(sql)

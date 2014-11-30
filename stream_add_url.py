@@ -16,6 +16,7 @@ solr_endpoint = config.get('main', 'solr_endpoint')
 mysql_g1_endpoint = config.get('main', 'mysql_g1_endpoint')
 mysql_user = config.get('main', 'mysql_user')
 mysql_password = config.get('main', 'mysql_password')
+filename = config.get('main', 'filename')
 
 start = timeit.default_timer()
 
@@ -27,19 +28,21 @@ cursor_g1 = db_g1.cursor()
 db = MySQLdb.connect("localhost","root","","stream", charset='utf8' )
 cursor = db.cursor()
 
-print "Truncate table..."
-cursor.execute(""" truncate table document;""" )
+print "Delete table..."
+cursor.execute(""" delete from document where filename = %s;""", [filename] )
 
 print "Populate table..."
-total_documents = cursor.execute(""" insert into document(document_id) 
-					select distinct document_id from stream_g1;""" )
+total_documents = cursor.execute(""" insert into document(document_id, filename) 
+					select distinct document_id, filename 
+					from stream_g1 where filename = %s;""" , [filename])
 
 print "Total:", total_documents
 
 print "Executing query..."
 cursor.execute(""" select document_id
 					from document
-					 ;""" )
+					where 
+					filename = %s ;""", [filename] )
 
 # import pdb; pdb.set_trace()
 
@@ -85,10 +88,11 @@ for result in cursor:
 								publish_date = %s,
 								modify_date = %s,
 								section = %s
-							where document_id = %s """
+							where document_id = %s
+							and filename = %s """
 		# import pdb; pdb.set_trace()
 
-		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), modify_date.replace(tzinfo=None), section,str(result[0])))
+		cursor.execute(sql, (url, title, body, publish_date.replace(tzinfo=None), modify_date.replace(tzinfo=None), section,str(result[0]), filename))
 		i += 1
 		if i % 100 == 0:
 			db.commit()
