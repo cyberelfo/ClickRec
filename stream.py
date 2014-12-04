@@ -5,6 +5,7 @@ import timeit
 from itertools import combinations
 import sys
 import time
+import datetime
 from progress.bar import Bar
 import ConfigParser
 
@@ -208,16 +209,16 @@ def save_frequent(freq, size):
 
 		for f in enumerate(freq):
 			cursor.execute(""" insert into itemset 
-				(filename, itemset_size, itemset_id, document_id)
-				values (%s, %s, %s, %s);
+				(filename, itemset_size, itemset_id, document_id, na_home)
+				values (%s, %s, %s, %s, 0);
 				""", [filename, size, f[0], f[1]] )
 
 	else:
 		for f in enumerate(freq):
 			for doc in f[1]:
 				cursor.execute(""" insert into itemset 
-					(filename, itemset_size, itemset_id, document_id)
-					values (%s, %s, %s, %s);
+					(filename, itemset_size, itemset_id, document_id, na_home)
+					values (%s, %s, %s, %s, 0);
 					""", [filename, size, f[0], doc] )
 	db.commit()
 
@@ -244,6 +245,44 @@ def print_frequent(freq, size):
 				result = cursor.fetchone()
 				print result[0]
 			print " "
+
+def check_itemset_home():
+
+	year = int(filename[16:20])
+	month = int(filename[21:23])
+	day = int(filename[24:26])
+	hour = int(filename[27:29])
+	min = 0
+
+	# rt-actions-read-2014_11_29_18.log
+
+	dt_file_fim = datetime.datetime(year, month, day, hour, 00)
+	dt_file_inicio = dt_file_fim - datetime.timedelta(hours=1)
+
+	cursor.execute(""" 
+		select distinct d.document_id, d.url 
+		from itemset i , document d,  home_g1 h
+		where i.itemset_size = 1
+		and i.document_id = d.document_id
+		and d.url_md5 = h.url_md5
+		and h.datetime_crawl >= %s
+		and h.datetime_crawl <= %s
+		and i.filename = %s ;
+		""" , [dt_file_inicio, dt_file_fim, filename])
+
+	result = cursor.fetchall()
+
+	for row in result:
+		cursor.execute(""" 
+			update itemset
+			set na_home = 1
+			where filename = %s
+			and document_id = %s
+			""" , [filename, row[0]])
+
+	db.commit()
+
+
 
 if __name__ == '__main__':
 
@@ -294,6 +333,8 @@ if __name__ == '__main__':
 
 	print "Selecting frequent itemsets..."
 	frequent_itemsets(transactions_list, frequent_size[1], 2)
+
+	check_itemset_home()
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 

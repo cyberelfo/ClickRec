@@ -84,5 +84,6 @@ CREATE TABLE `itemset` (
   `itemset_size` smallint(6) DEFAULT NULL,
   `itemset_id` smallint(6) DEFAULT NULL,
   `document_id` bigint(20) DEFAULT NULL,
+  `na_home` TINYINT(24) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
