@@ -116,6 +116,11 @@ def slide_window(size, document_id, user_id):
 	 		dictionary[document_id] = bitarray([False] * (size - 1))
 	 		dictionary[document_id].extend([True])
 
+def clean_window():
+	for key in dictionary.keys():
+		if dictionary[key].count() == 0:
+			del dictionary[key]
+
 if __name__ == '__main__':
 
 	start = timeit.default_timer()
@@ -132,13 +137,15 @@ if __name__ == '__main__':
 		if len(users) < window_size:
 			load_window(row[0], row[1][4], row[1][2])
 		else:
-			slide_window(row[0], row[1][4], row[1][2])
+			slide_window(window_size, row[1][4], row[1][2])
+
 		if row[0] % 1000 == 0:
 			stop_t = timeit.default_timer()
 			tempo_execucao = stop_t - start_t
 			print row[0], "- Tempo de execucao:", \
 				time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
 				"Window size:", len(users), "Pages:", len(dictionary)
+			# print dictionary[row[1][4]]
 			start_t = stop_t
 
 	f.close()
