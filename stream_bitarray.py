@@ -62,13 +62,13 @@ def load_window(size, document_id, user_id):
 	size +=1 
 
  	if user_id in users:
- 		a = users.index(user_id)
+ 		user_pos = users.index(user_id)
  		if document_id in dictionary:
-	 		dictionary[document_id][a] = 1
+	 		dictionary[document_id][user_pos] = 1
 	 		# print "Update!"
 	 	else:
 	 		dictionary[document_id] = bitarray([False] * (size))
-	 		dictionary[document_id][a] = 1
+	 		dictionary[document_id][user_pos] = 1
 	 		# print "New!"
 
  	else:
@@ -87,13 +87,13 @@ def load_window(size, document_id, user_id):
 
 def slide_window(size, document_id, user_id):
  	if user_id in users:
- 		a = users.index(user_id)
+ 		user_pos = users.index(user_id)
  		if document_id in dictionary:
-	 		dictionary[document_id][a] = 1
+	 		dictionary[document_id][user_pos] = 1
 	 		# print "Update!"
 	 	else:
 	 		dictionary[document_id] = bitarray([False] * (size))
-	 		dictionary[document_id][a] = 1
+	 		dictionary[document_id][user_pos] = 1
 	 		# print "New!"
 	else:
 		updated = False
