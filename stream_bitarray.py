@@ -4,6 +4,7 @@
 import timeit
 import csv
 import time
+from itertools import combinations
 from pprint import pprint
 from bitarray import bitarray
 import argparse
@@ -17,6 +18,9 @@ filename = config.get('main', 'filename')
 
 dictionary = {} # armazenar todos os documentos 
 users = []
+frequents = {}
+
+support = 0.01
 
 parser = argparse.ArgumentParser()
 parser.add_argument("num_users", type=int, 
@@ -27,23 +31,6 @@ args = parser.parse_args()
 
 window_size = args.num_users
 num_transactions = args.num_transactions
-# window_size = 1000
-
-def populate_array(size, user_id, document_id):
-
-	update_documents(size, document_id)
-
-
-def fast_update_documents(size, document_id, dictionary):
-	dictionary = dict(map((lambda (k,x): (k, x + bitarray(1))), dictionary.iteritems()))
-
-	try:
-		dictionary[document_id].extend([True])
-	except KeyError:
- 		dictionary[document_id] = bitarray([False] * (size - 1))
- 		dictionary[document_id].extend([True])
-
- 	return dictionary
 
 def test_update_documents(size, document_id):
 	size +=1 
@@ -121,6 +108,28 @@ def clean_window():
 		if dictionary[key].count() == 0:
 			del dictionary[key]
 
+
+def generate_fis(frequent_size):
+	frequents[frequent_size] = []
+	for doc_id in dictionary.keys():
+		if dictionary[doc_id].count() >= support * window_size:
+			frequents[frequent_size].append(doc_id)
+	print frequents
+	item_combinations = list(combinations(frequents[frequent_size], frequent_size + 1))
+	for itemset in item_combinations:
+		for item in enumerate(itemset):
+			# print dictionary[item[1]]
+			if item[0] == 0:
+				bitarray = dictionary[item[1]]
+			else:
+				bitarray = bitarray & dictionary[item[1]]
+
+		if bitarray.count() > 0:
+			print itemset
+			print bitarray
+
+
+
 if __name__ == '__main__':
 
 	start = timeit.default_timer()
@@ -149,6 +158,8 @@ if __name__ == '__main__':
 			start_t = stop_t
 
 	f.close()
+
+	generate_fis(1)
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 
