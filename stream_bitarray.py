@@ -25,12 +25,12 @@ support = 0.01
 parser = argparse.ArgumentParser()
 parser.add_argument("num_users", type=int, 
 	help="Number of users / size of the window")
-parser.add_argument("num_transactions", nargs='?', default=0, type=int, 
+parser.add_argument("max_transactions", nargs='?', default=0, type=int, 
 	help="Number of transactions to load, 0 = all")
 args = parser.parse_args()
 
 window_size = args.num_users
-num_transactions = args.num_transactions
+max_transactions = args.max_transactions
 
 def test_update_documents(size, document_id):
 	size +=1 
@@ -46,8 +46,6 @@ def test_update_documents(size, document_id):
  		dictionary[document_id] = size
 
 def load_window(size, document_id, user_id):
-	size +=1 
-
  	if user_id in users:
  		user_pos = users.index(user_id)
  		if document_id in dictionary:
@@ -59,6 +57,7 @@ def load_window(size, document_id, user_id):
 	 		# print "New!"
 
  	else:
+		size +=1 
  		users.append(user_id)
 		updated = False
 		for key in dictionary:
@@ -103,18 +102,28 @@ def slide_window(size, document_id, user_id):
 	 		dictionary[document_id] = bitarray([False] * (size - 1))
 	 		dictionary[document_id].extend([True])
 
-def clean_window():
+def check_array():
+	sum_ok = 0
+	sum_nok = 0
 	for key in dictionary.keys():
-		if dictionary[key].count() == 0:
-			del dictionary[key]
+		if len(dictionary[key]) <> len(users):
+			sum_nok += 1
+		else:
+			sum_ok += 1
+	print "sum_ok, sum_nok", sum_ok, sum_nok
 
 
 def generate_fis(frequent_size):
 	frequents[frequent_size] = []
+	print "generate_fis()"
 	for doc_id in dictionary.keys():
+		# print dictionary[doc_id]
+		# print doc_id, dictionary[doc_id].count()
 		if dictionary[doc_id].count() >= support * window_size:
 			frequents[frequent_size].append(doc_id)
+
 	print frequents
+
 	item_combinations = list(combinations(frequents[frequent_size], frequent_size + 1))
 	for itemset in item_combinations:
 		for item in enumerate(itemset):
@@ -124,13 +133,15 @@ def generate_fis(frequent_size):
 			else:
 				bitarray = bitarray & dictionary[item[1]]
 
-		if bitarray.count() > 0:
-			print itemset
-			print bitarray
+		# if bitarray.count() > 0:
+		# 	print itemset
+		# 	print bitarray
 
 
 
 if __name__ == '__main__':
+
+	print "Program start..."
 
 	start = timeit.default_timer()
 	start_t = timeit.default_timer()
@@ -139,27 +150,34 @@ if __name__ == '__main__':
 
 	reader = csv.reader(f)
 
+	num_transactions = 0
+	print "Support:", support * window_size
 	for row in enumerate(reader):
 		# print row
-		if num_transactions > 0 and row[0] > num_transactions: 
-			break
-		if len(users) < window_size:
-			load_window(row[0], row[1][4], row[1][2])
-		else:
-			slide_window(window_size, row[1][4], row[1][2])
+		if row[1][0] == '1':
+			if max_transactions > 0 and num_transactions > max_transactions: 
+				break
+			if len(users) < window_size:
+				load_window(num_transactions, row[1][2], row[1][4])
+			else:
+				slide_window(window_size, row[1][2], row[1][4])
+			check_array()
+			if num_transactions % 1000 == 0:
+				stop_t = timeit.default_timer()
+				tempo_execucao = stop_t - start_t
+				print num_transactions, "- Tempo de execucao:", \
+					time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
+					"Window size:", len(users), "Pages:", len(dictionary)
+				# print dictionary[row[1][4]]
+				start_t = stop_t
 
-		if row[0] % 1000 == 0:
-			stop_t = timeit.default_timer()
-			tempo_execucao = stop_t - start_t
-			print row[0], "- Tempo de execucao:", \
-				time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
-				"Window size:", len(users), "Pages:", len(dictionary)
-			# print dictionary[row[1][4]]
-			start_t = stop_t
+			# if num_transactions % window_size == 0:
+			# 	generate_fis(1)			
+			num_transactions += 1
 
 	f.close()
 
-	generate_fis(1)
+	generate_fis(1)			
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 
