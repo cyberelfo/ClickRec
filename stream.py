@@ -17,8 +17,8 @@ filename = config.get('main', 'filename')
 # transactions = {}
 frequent_size = {}
 support = 0.01
-# num_linhas = 3000
-num_linhas = 10000000
+num_linhas = 24000
+# num_linhas = 10000000
 nome_tabela = "stream_g1"
 # nome_tabela = "stream_valida"
 

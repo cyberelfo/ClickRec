@@ -91,27 +91,29 @@ def check_array():
 	return dict_not_ok
 
 
-def generate_fis(frequent_size):
+def generate_fis(frequent_size, prev_frequents):
 	frequents[frequent_size] = []
 	print "generate_fis()"
-	for doc_id in dictionary.keys():
-		if dictionary[doc_id].count() >= support * window_size:
-			frequents[frequent_size].append(doc_id)
 
-	print frequents
+	if frequent_size == 1:
+		for doc_id in dictionary.keys():
+			if dictionary[doc_id].count() >= support * len(users):
+				frequents[frequent_size].append(doc_id)
+	else:
+		item_combinations = list(combinations(prev_frequents, frequent_size))
+		for itemset in item_combinations:
+			for item in enumerate(itemset):
+				if item[0] == 0:
+					bitarray = dictionary[item[1]]
+				else:
+					bitarray = bitarray & dictionary[item[1]]
+			if bitarray.count() >= support * len(users):
+				frequents[frequent_size].append(itemset)
 
-	item_combinations = list(combinations(frequents[frequent_size], frequent_size + 1))
-	for itemset in item_combinations:
-		for item in enumerate(itemset):
-			if item[0] == 0:
-				bitarray = dictionary[item[1]]
-			else:
-				bitarray = bitarray & dictionary[item[1]]
+	print frequent_size, frequents[frequent_size]
 
-		if bitarray.count() >= support * window_size:
-			print itemset
-			print bitarray
-
+	if len(frequents[frequent_size]) > 0:
+		generate_fis(frequent_size+1, frequents[frequent_size])
 
 
 if __name__ == '__main__':
@@ -126,7 +128,6 @@ if __name__ == '__main__':
 	reader = csv.reader(f)
 
 	num_transactions = 0
-	print "Support:", support * window_size
 	for row in enumerate(reader):
 		if row[1][0] == '1':
 			num_transactions += 1
@@ -150,7 +151,8 @@ if __name__ == '__main__':
 
 	f.close()
 
-	generate_fis(1)
+	print "Support:", support * len(users)
+	generate_fis(1, [])
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 
