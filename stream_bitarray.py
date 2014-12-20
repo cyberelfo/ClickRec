@@ -52,12 +52,11 @@ def load_window(size, document_id, user_id):
 	 		dictionary[document_id][user_pos] = 1
 	 		# print "Update!"
 	 	else:
-	 		dictionary[document_id] = bitarray([False] * (size))
+	 		dictionary[document_id] = bitarray([False] * (len(users)))
 	 		dictionary[document_id][user_pos] = 1
 	 		# print "New!"
 
  	else:
-		size +=1 
  		users.append(user_id)
 		updated = False
 		for key in dictionary:
@@ -68,7 +67,7 @@ def load_window(size, document_id, user_id):
 				dictionary[key].extend([False])
 
 		if not updated:
-	 		dictionary[document_id] = bitarray([False] * (size - 1))
+	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
 	 		dictionary[document_id].extend([True])
 
 def slide_window(size, document_id, user_id):
@@ -78,7 +77,7 @@ def slide_window(size, document_id, user_id):
 	 		dictionary[document_id][user_pos] = 1
 	 		# print "Update!"
 	 	else:
-	 		dictionary[document_id] = bitarray([False] * (size))
+	 		dictionary[document_id] = bitarray([False] * (len(users)))
 	 		dictionary[document_id][user_pos] = 1
 	 		# print "New!"
 	else:
@@ -99,18 +98,17 @@ def slide_window(size, document_id, user_id):
 					dictionary[key].extend([False])
 
 		if not updated:
-	 		dictionary[document_id] = bitarray([False] * (size - 1))
+	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
 	 		dictionary[document_id].extend([True])
 
 def check_array():
-	sum_ok = 0
-	sum_nok = 0
+	dict_not_ok = False
 	for key in dictionary.keys():
 		if len(dictionary[key]) <> len(users):
-			sum_nok += 1
-		else:
-			sum_ok += 1
-	print "sum_ok, sum_nok", sum_ok, sum_nok
+			print key
+			print len(dictionary[key]) , len(users)
+			dict_not_ok = True
+	return dict_not_ok
 
 
 def generate_fis(frequent_size):
@@ -133,9 +131,9 @@ def generate_fis(frequent_size):
 			else:
 				bitarray = bitarray & dictionary[item[1]]
 
-		# if bitarray.count() > 0:
-		# 	print itemset
-		# 	print bitarray
+		if bitarray.count() >= support * window_size:
+			print itemset
+			print bitarray
 
 
 
@@ -155,13 +153,17 @@ if __name__ == '__main__':
 	for row in enumerate(reader):
 		# print row
 		if row[1][0] == '1':
+			num_transactions += 1
 			if max_transactions > 0 and num_transactions > max_transactions: 
 				break
 			if len(users) < window_size:
 				load_window(num_transactions, row[1][2], row[1][4])
 			else:
 				slide_window(window_size, row[1][2], row[1][4])
-			check_array()
+			# if check_array():
+			# 	pprint(dictionary)
+			# 	break
+
 			if num_transactions % 1000 == 0:
 				stop_t = timeit.default_timer()
 				tempo_execucao = stop_t - start_t
@@ -173,15 +175,15 @@ if __name__ == '__main__':
 
 			# if num_transactions % window_size == 0:
 			# 	generate_fis(1)			
-			num_transactions += 1
 
 	f.close()
 
-	generate_fis(1)			
+	generate_fis(1)
 
 	stop = timeit.default_timer()
 	tempo_execucao = stop - start 
 
+	# print "dictionary"
 	# pprint(dictionary)
 	# print users
 
