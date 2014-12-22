@@ -100,11 +100,19 @@ def generate_fis(frequent_size, prev_frequents):
 			if dictionary[doc_id].count() >= support * len(users):
 				frequents[frequent_size].append(doc_id)
 	else:
-		item_combinations = list(combinations(prev_frequents, frequent_size))
+		# import pdb; pdb.set_trace()
+		if frequent_size == 2:
+			prev_freq_split = prev_frequents
+		else:
+			prev_freq_split = set([item for sublist in prev_frequents for item in sublist])
+		item_combinations = list(combinations(prev_freq_split, frequent_size))
 		for itemset in item_combinations:
 			for item in enumerate(itemset):
 				if item[0] == 0:
-					bitarray = dictionary[item[1]]
+					try:
+						bitarray = dictionary[item[1]]
+					except:
+						import pdb; pdb.set_trace()
 				else:
 					bitarray = bitarray & dictionary[item[1]]
 			if bitarray.count() >= support * len(users):
