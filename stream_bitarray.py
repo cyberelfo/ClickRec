@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import timeit
+
 import csv
 import time
 from itertools import combinations
@@ -9,6 +9,7 @@ from pprint import pprint
 from bitarray import bitarray
 import argparse
 import ConfigParser
+from datetime import datetime as dt
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -30,16 +31,20 @@ parser.add_argument("max_transactions", nargs='?', default=0, type=int,
 args = parser.parse_args()
 
 window_size = args.num_users
+target_user = 0
 max_transactions = args.max_transactions
+
+def user_visit_document(user_id, document_id):
+	user_pos = users.index(user_id)
+	if document_id in dictionary:
+ 		dictionary[document_id][user_pos] = 1
+ 	else:
+ 		dictionary[document_id] = bitarray([False] * (len(users)))
+ 		dictionary[document_id][user_pos] = 1
 
 def load_window(size, document_id, user_id):
  	if user_id in users:
- 		user_pos = users.index(user_id)
- 		if document_id in dictionary:
-	 		dictionary[document_id][user_pos] = 1
-	 	else:
-	 		dictionary[document_id] = bitarray([False] * (len(users)))
-	 		dictionary[document_id][user_pos] = 1
+ 		user_visit_document(user_id, document_id)
  	else:
 		updated = False
  		users.append(user_id)
@@ -54,32 +59,41 @@ def load_window(size, document_id, user_id):
 	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
 	 		dictionary[document_id].extend([True])
 
+def adjust_bitarray(key):
+	if dictionary[key].count() == 0:
+		del dictionary[key]
+	else:
+		dictionary[key][target_user] = False
+
+
+def fix_dictionary(document_id):
+	for key in dictionary.keys():
+		
+		if key == document_id:
+			dictionary[key][target_user] = True
+			updated = True
+		else:
+			adjust_bitarray(key)
+
+def replace_user(user_id):
+	global target_user
+ 	users[target_user] = user_id
+ 	target_user = (target_user + 1) % window_size
+
 def slide_window(size, document_id, user_id):
+
  	if user_id in users:
- 		user_pos = users.index(user_id)
- 		if document_id in dictionary:
-	 		dictionary[document_id][user_pos] = 1
-	 	else:
-	 		dictionary[document_id] = bitarray([False] * (len(users)))
-	 		dictionary[document_id][user_pos] = 1
+ 		user_visit_document(user_id, document_id)
 	else:
 		updated = False
-	 	del users[0]
-	 	users.append(user_id)
-		for key in dictionary.keys():
-			del dictionary[key][0]
-			if key == document_id:
-				dictionary[key].extend([True])
-				updated = True
-			else:
-				if dictionary[key].count() == 0:
-					del dictionary[key]
-				else:
-					dictionary[key].extend([False])
 
+		replace_user(user_id)	 	
+
+	 	fix_dictionary(document_id)
 		if not updated:
 	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
 	 		dictionary[document_id].extend([True])
+
 
 def check_array():
 	dict_not_ok = False
@@ -123,13 +137,11 @@ def generate_fis(frequent_size, prev_frequents):
 	if len(frequents[frequent_size]) > 0:
 		generate_fis(frequent_size+1, frequents[frequent_size])
 
-
-if __name__ == '__main__':
+def main():
 
 	print "Program start..."
 
-	start = timeit.default_timer()
-	start_t = timeit.default_timer()
+	start_t = start = dt.now()
 
 	f = open(path+filename, 'rb')
 
@@ -150,11 +162,14 @@ if __name__ == '__main__':
 			# 	break
 
 			if num_transactions % 1000 == 0:
-				stop_t = timeit.default_timer()
+				stop_t = dt.now()
 				tempo_execucao = stop_t - start_t
 				print num_transactions, "- Tempo de execucao:", \
-					time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
+					tempo_execucao, \
 					"Window size:", len(users), "Pages:", len(dictionary)
+				if tempo_execucao.seconds > 30:
+					import sys
+					sys.exit(0)
 				start_t = stop_t
 
 	f.close()
@@ -162,7 +177,7 @@ if __name__ == '__main__':
 	print "Support:", support * len(users)
 	generate_fis(1, [])
 
-	stop = timeit.default_timer()
+	stop = dt.now()
 	tempo_execucao = stop - start 
 
 	# print "dictionary"
@@ -170,4 +185,9 @@ if __name__ == '__main__':
 	# print users
 
 	print "Fim processamento"
-	print "Tempo de execucao:", time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao))
+	print "Tempo de execucao:", tempo_execucao
+
+if __name__ == '__main__':
+	import cProfile
+	cProfile.run('main()')
+	main()
