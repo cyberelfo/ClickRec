@@ -11,17 +11,18 @@ import argparse
 import ConfigParser
 from datetime import datetime as dt
 
+import networkx as nx
+
+G=nx.Graph()
+G.add_node("users")
+G.add_node("pages")
+
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
 
 path = config.get('main', 'path')
 filename = config.get('main', 'filename')
 
-dictionary = {} # armazenar todos os documentos 
-users = []
-frequents = {}
-
-support = 0.01
 
 parser = argparse.ArgumentParser()
 parser.add_argument("num_users", type=int, 
@@ -30,80 +31,96 @@ parser.add_argument("max_transactions", nargs='?', default=0, type=int,
 	help="Number of transactions to load, 0 = all")
 args = parser.parse_args()
 
+# Global variables
+
 window_size = args.num_users
 target_user = 0
 max_transactions = args.max_transactions
+dictionary = {} # armazenar todos os documentos 
+users = [0] * window_size
+frequents = {}
+support = 0.01
 
-def user_visit_document(user_id, document_id):
-	user_pos = users.index(user_id)
+def user_visit_document(user_pos, document_id):
 	if document_id in dictionary:
  		dictionary[document_id][user_pos] = 1
+ 		#G.add_edge(user_id,document_id)
  	else:
  		dictionary[document_id] = bitarray([False] * (len(users)))
  		dictionary[document_id][user_pos] = 1
+		#G.add_node(document_id)
+		#G.add_edge(user_id,document_id)
 
-def load_window(size, document_id, user_id):
- 	if user_id in users:
- 		user_visit_document(user_id, document_id)
- 	else:
-		updated = False
- 		users.append(user_id)
-		for key in dictionary:
-			if key == document_id:
-				dictionary[key].extend([True])
-				updated = True
-			else:
-				dictionary[key].extend([False])
+def new_page(user_id, document_id):
+	dictionary[document_id] = bitarray([False] * window_size)
+	dictionary[document_id][target_user] = True
+	#G.add_node(document_id)
+	#G.add_edge(user_id,document_id)
 
-		if not updated:
-	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
-	 		dictionary[document_id].extend([True])
 
-def adjust_bitarray(key):
-	if dictionary[key].count() == 0:
+
+def adjust_bitarray(bitarray, key):
+	if bitarray.count() == 0:
 		del dictionary[key]
 		return 1
 	else:
-		dictionary[key][target_user] = False
+		bitarray[target_user] = False
 		return 0
 
 def fix_dictionary(document_id):
 	count = 0
-	for key in dictionary.keys():
-		
+	updated = False
+	for key, bitarray in dictionary.items():
 		if key == document_id:
-			dictionary[key][target_user] = True
+			bitarray[target_user] = True
 			updated = True
 		else:
-			count += adjust_bitarray(key)
-	return count
+			count += adjust_bitarray(bitarray, key)
+	return count, updated
 
 def replace_user(user_id):
 	global target_user
+	try:
+		removed_user = users[target_user]
+	except IndexError:
+		removed_user = None
+
+ 	#G.remove_node(removed_user)
  	users[target_user] = user_id
  	target_user = (target_user + 1) % window_size
+ 	#print target_user, removed_user, user_id
+ 	#G.add_node(user_id)
+ 	return removed_user
+
+
+def generate_graph(user_id):
+	import matplotlib.pyplot as plt
+	nx.draw(G)
+	plt.savefig("graph_{0}.png".format(user_id))
+
 
 def slide_window(size, document_id, user_id):
 
- 	if user_id in users:
- 		user_visit_document(user_id, document_id)
-	else:
-		updated = False
+ 	if user_id not in users:
 
-		replace_user(user_id)	 	
+		removed_user = replace_user(user_id)	 	
 
-	 	count = fix_dictionary(document_id)
+	 	count, updated = fix_dictionary(document_id)
 	 	if count > 100:
-		 	print "User {0} left and caused removal of {1} pages".format(user_id, count)
+		 	print "{0} left , entered {1} at {2} removal of {3} pages".format(removed_user, user_id, target_user, count)
+
 		if not updated:
-	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
-	 		dictionary[document_id].extend([True])
+	 		new_page(user_id, document_id)
+
+	user_pos = users.index(user_id)
+ 	user_visit_document(user_pos, document_id)
+	
 
 
 def check_array():
 	dict_not_ok = False
 	for key in dictionary.keys():
-		if len(dictionary[key]) <> len(users):
+		if len(dictionary[key]) != len(users):
 			print key
 			print len(dictionary[key]) , len(users)
 			dict_not_ok = True
@@ -153,18 +170,14 @@ def main():
 	reader = csv.reader(f)
 
 	num_transactions = 0
-	for row in enumerate(reader):
-		if row[1][0] == '1':
+
+	for product_id, _type, document_id, provider_id, user_id, timestamp,  in reader:
+		if product_id == '1':  # G1
 			num_transactions += 1
 			if max_transactions > 0 and num_transactions > max_transactions: 
 				break
-			if len(users) < window_size:
-				load_window(num_transactions, int(row[1][2]), int(row[1][4]))
-			else:
-				slide_window(window_size, int(row[1][2]), int(row[1][4]))
-			# if check_array():
-			# 	pprint(dictionary)
-			# 	break
+			
+			slide_window(window_size, int(document_id), int(user_id))
 
 			if num_transactions % 1000 == 0:
 				stop_t = dt.now()
@@ -193,6 +206,6 @@ def main():
 	print "Tempo de execucao:", tempo_execucao
 
 if __name__ == '__main__':
-	import cProfile
-	cProfile.run('main()')
 	main()
+	#import cProfile
+	#cProfile.run('main()')
