@@ -62,18 +62,21 @@ def load_window(size, document_id, user_id):
 def adjust_bitarray(key):
 	if dictionary[key].count() == 0:
 		del dictionary[key]
+		return 1
 	else:
 		dictionary[key][target_user] = False
-
+		return 0
 
 def fix_dictionary(document_id):
+	count = 0
 	for key in dictionary.keys():
 		
 		if key == document_id:
 			dictionary[key][target_user] = True
 			updated = True
 		else:
-			adjust_bitarray(key)
+			count += adjust_bitarray(key)
+	return count
 
 def replace_user(user_id):
 	global target_user
@@ -89,7 +92,9 @@ def slide_window(size, document_id, user_id):
 
 		replace_user(user_id)	 	
 
-	 	fix_dictionary(document_id)
+	 	count = fix_dictionary(document_id)
+	 	if count > 100:
+		 	print "User {0} left and caused removal of {1} pages".format(user_id, count)
 		if not updated:
 	 		dictionary[document_id] = bitarray([False] * (len(users) - 1))
 	 		dictionary[document_id].extend([True])
