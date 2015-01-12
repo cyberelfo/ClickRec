@@ -36,46 +36,46 @@ args = parser.parse_args()
 window_size = args.num_users
 target_user = 0
 max_transactions = args.max_transactions
-dictionary = {} # armazenar todos os documentos 
-users = [0] * window_size
+bit_array = {} # armazenar todos os documentos 
+users = pages_users = [0] * window_size
 frequents = {}
 support = 0.01
 
 def user_visit_document(user_pos, document_id):
-	if document_id in dictionary:
- 		dictionary[document_id][user_pos] = 1
+	if document_id in bit_array:
+ 		bit_array[document_id][user_pos] = 1
  		#G.add_edge(user_id,document_id)
  	else:
- 		dictionary[document_id] = bitarray([False] * (len(users)))
- 		dictionary[document_id][user_pos] = 1
+ 		bit_array[document_id] = bitarray([False] * window_size)
+ 		bit_array[document_id][user_pos] = 1
 		#G.add_node(document_id)
 		#G.add_edge(user_id,document_id)
 
 def new_page(user_id, document_id):
-	dictionary[document_id] = bitarray([False] * window_size)
-	dictionary[document_id][target_user] = True
+	bit_array[document_id] = bitarray([False] * window_size)
+	bit_array[document_id][target_user] = True
 	#G.add_node(document_id)
 	#G.add_edge(user_id,document_id)
 
 
 
-def adjust_bitarray(bitarray, key):
-	if bitarray.count() == 0:
-		del dictionary[key]
+def adjust_bit_vector(bit_vector, key):
+	if bit_vector.count() == 0:
+		del bit_array[key]
 		return 1
 	else:
-		bitarray[target_user] = False
+		bit_vector[target_user] = False
 		return 0
 
-def fix_dictionary(document_id):
+def fix_bit_array(document_id):
 	count = 0
 	updated = False
-	for key, bitarray in dictionary.items():
+	for key, bit_vector in bit_array.items():
 		if key == document_id:
-			bitarray[target_user] = True
+			bit_vector[target_user] = True
 			updated = True
 		else:
-			count += adjust_bitarray(bitarray, key)
+			count += adjust_bit_vector(bit_vector, key)
 	return count, updated
 
 def replace_user(user_id):
@@ -105,7 +105,7 @@ def slide_window(size, document_id, user_id):
 
 		removed_user = replace_user(user_id)	 	
 
-	 	count, updated = fix_dictionary(document_id)
+	 	count, updated = fix_bit_array(document_id)
 	 	if count > 100:
 		 	print "{0} left , entered {1} at {2} removal of {3} pages".format(removed_user, user_id, target_user, count)
 
@@ -119,10 +119,10 @@ def slide_window(size, document_id, user_id):
 
 def check_array():
 	dict_not_ok = False
-	for key in dictionary.keys():
-		if len(dictionary[key]) != len(users):
+	for key in bit_array.keys():
+		if len(bit_array[key]) != len(users):
 			print key
-			print len(dictionary[key]) , len(users)
+			print len(bit_array[key]) , len(users)
 			dict_not_ok = True
 	return dict_not_ok
 
@@ -132,8 +132,8 @@ def generate_fis(frequent_size, prev_frequents):
 	print "generate_fis()"
 
 	if frequent_size == 1:
-		for doc_id in dictionary.keys():
-			if dictionary[doc_id].count() >= support * len(users):
+		for doc_id in bit_array.keys():
+			if bit_array[doc_id].count() >= support * len(users):
 				frequents[frequent_size].append(doc_id)
 	else:
 		# import pdb; pdb.set_trace()
@@ -146,12 +146,12 @@ def generate_fis(frequent_size, prev_frequents):
 			for item in enumerate(itemset):
 				if item[0] == 0:
 					try:
-						bitarray = dictionary[item[1]]
+						bit_vector = bit_array[item[1]]
 					except:
 						import pdb; pdb.set_trace()
 				else:
-					bitarray = bitarray & dictionary[item[1]]
-			if bitarray.count() >= support * len(users):
+					bit_vector = bit_vector & bit_array[item[1]]
+			if bit_vector.count() >= support * len(users):
 				frequents[frequent_size].append(itemset)
 
 	print frequent_size, frequents[frequent_size]
@@ -184,7 +184,7 @@ def main():
 				tempo_execucao = stop_t - start_t
 				print num_transactions, "- Tempo de execucao:", \
 					tempo_execucao, \
-					"Window size:", len(users), "Pages:", len(dictionary)
+					"Window size:", len(users), "Pages:", len(bit_array)
 				if tempo_execucao.seconds > 30:
 					import sys
 					sys.exit(0)
@@ -198,8 +198,8 @@ def main():
 	stop = dt.now()
 	tempo_execucao = stop - start 
 
-	# print "dictionary"
-	# pprint(dictionary)
+	# print "bit_array"
+	# pprint(bit_array)
 	# print users
 
 	print "Fim processamento"
