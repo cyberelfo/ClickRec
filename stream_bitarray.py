@@ -11,12 +11,6 @@ import argparse
 import ConfigParser
 from datetime import datetime as dt
 
-import networkx as nx
-
-G=nx.Graph()
-G.add_node("users")
-G.add_node("pages")
-
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
 
@@ -72,11 +66,6 @@ def replace_user(user_id):
  	#print target_user, removed_user, user_id
  	#G.add_node(user_id)
  	return removed_user
-
-def generate_graph(user_id):
-	import matplotlib.pyplot as plt
-	nx.draw(G)
-	plt.savefig("graph_{0}.png".format(user_id))
 
 def slide_window(size, document_id, user_id):
 	global target_user, window_not_full
