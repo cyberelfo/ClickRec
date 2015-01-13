@@ -62,6 +62,8 @@ def replace_user(user_id):
 		removed_user = None
 	for doc_id in pages_users[target_user]:
 		bit_array[doc_id][target_user] = False
+		if bit_array[doc_id].count() == 0:
+			del bit_array[doc_id]
 
  	#G.remove_node(removed_user)
  	users[target_user] = user_id
@@ -83,16 +85,22 @@ def slide_window(size, document_id, user_id):
 		removed_user = replace_user(user_id)
 	 	target_user = (target_user + 1) % window_size
 	 	if window_not_full and target_user == 0:
-	 		window_not_full = True
+	 		window_not_full = False
 
 	user_pos = users_dict[user_id]
  	user_visit_document(user_pos, document_id)
 	
-def generate_fis(frequent_size, prev_frequents, cur_window_size):
+def generate_fis(frequent_size, prev_frequents):
 	frequents[frequent_size] = []
 	print "generate_fis()"
 
+	if window_not_full:
+		cur_window_size = target_user
+	else:
+		cur_window_size = window_size
+
 	if frequent_size == 1:
+		print "Support:", support * cur_window_size
 		for doc_id in bit_array.keys():
 			if bit_array[doc_id].count() >= support * cur_window_size:
 				frequents[frequent_size].append(doc_id)
@@ -118,7 +126,7 @@ def generate_fis(frequent_size, prev_frequents, cur_window_size):
 	print frequent_size, frequents[frequent_size]
 
 	if len(frequents[frequent_size]) > 0:
-		generate_fis(frequent_size+1, frequents[frequent_size], cur_window_size)
+		generate_fis(frequent_size+1, frequents[frequent_size])
 
 def main():
 
@@ -131,8 +139,8 @@ def main():
 	reader = csv.reader(f)
 
 	num_transactions = 0
-
-	for product_id, _type, document_id, provider_id, user_id, timestamp,  in reader:
+	cur_timestamp = 0
+	for product_id, _type, document_id, provider_id, user_id, timestamp  in reader:
 		if product_id == '1':  # G1
 			num_transactions += 1
 			if max_transactions > 0 and num_transactions > max_transactions: 
@@ -148,21 +156,18 @@ def main():
 				print num_transactions, "- Tempo de execucao:", \
 					tempo_execucao, \
 					"Window position:", target_user, "Pages:", len(bit_array)
-				if tempo_execucao.seconds > 30:
-					import sys
-					sys.exit(0)
 				start_t = stop_t
 
-			# if num_transactions % 50000 == 0:
-			# 	if window_not_full:
-			# 		generate_fis(1, [], target_user)
-			# 	else:
-			# 		generate_fis(1, [], window_size)
+			if num_transactions % window_size == 0:
+				print timestamp
+				print dt.fromtimestamp(int(timestamp[:10]))
+				generate_fis(1, [])
 
 	f.close()
 
-	print "Support:", support * window_size
-	generate_fis(1, [], window_size)
+	print timestamp
+	print dt.fromtimestamp(int(timestamp[:10]))
+	generate_fis(1, [])
 
 	stop = dt.now()
 	tempo_execucao = stop - start 
