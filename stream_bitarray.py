@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import csv
-import time
 from itertools import combinations
 from pprint import pprint
 from bitarray import bitarray
@@ -10,6 +9,7 @@ import argparse
 import ConfigParser
 from datetime import datetime as dt
 import requests
+import glob
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -42,7 +42,7 @@ users = [0] * window_size
 users_dict = {}
 pages_users = [set() for i in range(window_size)]
 frequents = {}
-
+num_transactions = 0
 
 def read_from_hadoop(filename):
 	from StringIO import StringIO
@@ -125,7 +125,6 @@ def generate_fis(frequent_size, prev_frequents):
 		cur_window_size = window_size
 
 	if frequent_size == 1:
-		# print "Support:", support * cur_window_size
 		for doc_id in bit_array.keys():
 			if bit_array[doc_id].count() >= support * cur_window_size:
 				frequents[frequent_size].append(doc_id)
@@ -158,32 +157,9 @@ def debug_array(user_id, document_id, target_user):
 	print "Document:", document_id
 	pprint(bit_array)
 
-def main():
-
-	print "Program start..."
-
-	start_t = start = dt.now()
-
-	print "Reading stream file..."
-
-	if local_file:
-		f = open(path+filename, 'rb')
-	else:
-		f = read_from_hadoop("rt-actions-read-2015_01_14_12.log")
-
-	stream = csv.reader(f)
-
-	print "Sorting stream..."
-
-	stream_sorted = sort_by_column(stream, 5)
-
-	stop = dt.now()
-	tempo_execucao = stop - start 
-
-	print "Stream sorted in:", tempo_execucao 
-
-	num_transactions = 0
-	cur_timestamp = 0
+def process_stream_file(stream_sorted):
+	global num_transactions
+	start_t = stop_t = dt.now()
 	for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
 		if product_id == '1':  # G1
 			num_transactions += 1
@@ -198,9 +174,13 @@ def main():
 				stop_t = dt.now()
 				tempo_execucao = stop_t - start_t
 				row_datetime = dt.fromtimestamp(int(timestamp[:10]))
+				if window_not_full:
+					cur_window_size = target_user
+				else:
+					cur_window_size = window_size
 				print num_transactions, "- Execution time:", \
 					tempo_execucao, \
-					"Array pointer:", target_user, "Pages:", \
+					"Window size:", cur_window_size, "Pages:", \
 					len(bit_array), "Row timestamp:", row_datetime
 				start_t = stop_t
 
@@ -209,10 +189,47 @@ def main():
 
 			# debug_array(user_id, document_id, target_user)
 
-	f.close()
+def get_files(local_file):
+	if local_file:
+		 file_list = glob.glob(path + "*.log")
+	else:
+		file_list = None
+	file_list.sort()
+	return file_list
 
-	# print timestamp
-	# print dt.fromtimestamp(int(timestamp[:10]))
+def main():
+
+	print "Program start..."
+
+	start_t = start = dt.now()
+
+
+	file_list = get_files(local_file)
+
+	for filename in file_list:
+		print ""
+		print "Reading stream file "+ filename + "..."
+
+		if local_file:
+			f = open(filename, 'rb')
+		else:
+			f = read_from_hadoop("rt-actions-read-2015_01_14_12.log")
+
+		stream = csv.reader(f)
+
+		print "Sorting stream..."
+
+		stream_sorted = sort_by_column(stream, 5)
+
+		stop = dt.now()
+		tempo_execucao = stop - start 
+
+		print "Stream sorted in:", tempo_execucao 
+
+		process_stream_file(stream_sorted)
+
+		f.close()
+
 	generate_fis(1, [])
 
 	stop = dt.now()
