@@ -37,6 +37,20 @@ pages_users = [set() for i in range(window_size)]
 frequents = {}
 support = 0.01
 
+import operator
+
+def sort_by_column(csv_cont, col_index, reverse=False):
+    """ 
+    Sorts CSV contents by column index (if col_index argument 
+    is type <int>). 
+    
+    """
+    body = csv_cont
+    body = sorted(body, 
+           key=operator.itemgetter(col_index), 
+           reverse=reverse)
+    return body
+
 def user_visit_document(user_pos, document_id):
 	pages_users[user_pos].add(document_id)
 	try:
@@ -125,11 +139,22 @@ def main():
 
 	f = open(path+filename, 'rb')
 
-	reader = csv.reader(f)
+	print "Reading stream file..."
+
+	stream = csv.reader(f)
+
+	print "Sorting stream..."
+
+	stream_sorted = sort_by_column(stream, 5)
+
+	stop = dt.now()
+	tempo_execucao = stop - start 
+
+	print "Stream sorted in:", tempo_execucao 
 
 	num_transactions = 0
 	cur_timestamp = 0
-	for product_id, _type, document_id, provider_id, user_id, timestamp  in reader:
+	for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
 		if product_id == '1':  # G1
 			num_transactions += 1
 			if max_transactions > 0 and num_transactions > max_transactions: 
@@ -142,20 +167,20 @@ def main():
 			if num_transactions % 1000 == 0:
 				stop_t = dt.now()
 				tempo_execucao = stop_t - start_t
-				print num_transactions, "- Tempo de execucao:", \
+				row_datetime = dt.fromtimestamp(int(timestamp[:10]))
+				print num_transactions, "- Execution time:", \
 					tempo_execucao, \
-					"Window position:", target_user, "Pages:", len(bit_array)
+					"Array pointer:", target_user, "Pages:", \
+					len(bit_array), "Row timestamp:", row_datetime
 				start_t = stop_t
 
 			if num_transactions % window_size == 0:
-				print timestamp
-				print dt.fromtimestamp(int(timestamp[:10]))
 				generate_fis(1, [])
 
 	f.close()
 
-	print timestamp
-	print dt.fromtimestamp(int(timestamp[:10]))
+	# print timestamp
+	# print dt.fromtimestamp(int(timestamp[:10]))
 	generate_fis(1, [])
 
 	stop = dt.now()
