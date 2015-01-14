@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-
 import csv
 import time
 from itertools import combinations
@@ -17,8 +16,8 @@ config.read("./stream.ini")
 
 path = config.get('main', 'path')
 filename = config.get('main', 'filename')
-local_file = config.get('main', 'local_file')
-support = config.get('main', 'support')
+local_file = config.getboolean('main', 'local_file')
+support = config.getfloat('main', 'support')
 
 hadoop_server = config.get('hadoop', 'hadoop_server')
 hadoop_port = config.get('hadoop', 'hadoop_port')
@@ -43,7 +42,6 @@ users = [0] * window_size
 users_dict = {}
 pages_users = [set() for i in range(window_size)]
 frequents = {}
-# local_file = args.local_file
 
 
 def read_from_hadoop(filename):
@@ -141,13 +139,10 @@ def generate_fis(frequent_size, prev_frequents):
 		for itemset in item_combinations:
 			for item in enumerate(itemset):
 				if item[0] == 0:
-					try:
-						bit_vector = bit_array[item[1]]
-					except:
-						import pdb; pdb.set_trace()
+					bit_vector = bit_array[item[1]]
 				else:
 					bit_vector = bit_vector & bit_array[item[1]]
-			if bit_vector.count() >= support * len(users):
+			if bit_vector.count() >= support * cur_window_size:
 				frequents[frequent_size].append(itemset)
 
 	if frequent_size > 1 and len(frequents[frequent_size]) > 0:
