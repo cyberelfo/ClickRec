@@ -10,14 +10,22 @@ from bitarray import bitarray
 import argparse
 import ConfigParser
 from datetime import datetime as dt
+import requests
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
 
 path = config.get('main', 'path')
 filename = config.get('main', 'filename')
+local_file = config.get('main', 'local_file')
+support = config.get('main', 'support')
+
+hadoop_server = config.get('hadoop', 'hadoop_server')
+hadoop_port = config.get('hadoop', 'hadoop_port')
+hadoop_path = config.get('hadoop', 'hadoop_path')
 
 parser = argparse.ArgumentParser()
+
 parser.add_argument("num_users", type=int, 
 	help="Number of users / size of the window")
 parser.add_argument("max_transactions", nargs='?', default=0, type=int, 
@@ -35,9 +43,23 @@ users = [0] * window_size
 users_dict = {}
 pages_users = [set() for i in range(window_size)]
 frequents = {}
-support = 0.01
+# local_file = args.local_file
 
-import operator
+
+def read_from_hadoop(filename):
+	from StringIO import StringIO
+	# import pdb; pdb.set_trace()
+
+	url = "http://" + hadoop_server + ":" \
+	      + hadoop_port + "/webhdfs/v1/" + hadoop_path \
+	      + filename
+	filename = url.split('/')[-1]
+	r = requests.get(url, params={'op':'OPEN'})
+	s = StringIO(r.content)
+	r.close()
+	# s.write(r.content)
+	# f = s.getvalue()
+	return s
 
 def sort_by_column(csv_cont, col_index, reverse=False):
     """ 
@@ -45,6 +67,8 @@ def sort_by_column(csv_cont, col_index, reverse=False):
     is type <int>). 
     
     """
+    import operator
+
     body = csv_cont
     body = sorted(body, 
            key=operator.itemgetter(col_index), 
@@ -95,7 +119,7 @@ def slide_window(size, document_id, user_id):
 	
 def generate_fis(frequent_size, prev_frequents):
 	frequents[frequent_size] = []
-	print "generate_fis()"
+	# print "generate_fis()"
 
 	if window_not_full:
 		cur_window_size = target_user
@@ -103,7 +127,7 @@ def generate_fis(frequent_size, prev_frequents):
 		cur_window_size = window_size
 
 	if frequent_size == 1:
-		print "Support:", support * cur_window_size
+		# print "Support:", support * cur_window_size
 		for doc_id in bit_array.keys():
 			if bit_array[doc_id].count() >= support * cur_window_size:
 				frequents[frequent_size].append(doc_id)
@@ -126,10 +150,18 @@ def generate_fis(frequent_size, prev_frequents):
 			if bit_vector.count() >= support * len(users):
 				frequents[frequent_size].append(itemset)
 
-	print frequent_size, frequents[frequent_size]
+	if frequent_size > 1 and len(frequents[frequent_size]) > 0:
+		print "Support:", support * cur_window_size
+		print frequent_size, frequents[frequent_size]
 
 	if len(frequents[frequent_size]) > 0:
 		generate_fis(frequent_size+1, frequents[frequent_size])
+
+def debug_array(user_id, document_id, target_user):
+	print ""
+	print "User:", user_id, "[", target_user,"]"
+	print "Document:", document_id
+	pprint(bit_array)
 
 def main():
 
@@ -137,9 +169,12 @@ def main():
 
 	start_t = start = dt.now()
 
-	f = open(path+filename, 'rb')
-
 	print "Reading stream file..."
+
+	if local_file:
+		f = open(path+filename, 'rb')
+	else:
+		f = read_from_hadoop("rt-actions-read-2015_01_14_12.log")
 
 	stream = csv.reader(f)
 
@@ -174,8 +209,10 @@ def main():
 					len(bit_array), "Row timestamp:", row_datetime
 				start_t = stop_t
 
-			if num_transactions % window_size == 0:
+			if num_transactions % 10000 == 0:
 				generate_fis(1, [])
+
+			# debug_array(user_id, document_id, target_user)
 
 	f.close()
 
