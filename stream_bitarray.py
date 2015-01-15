@@ -10,6 +10,7 @@ import ConfigParser
 from datetime import datetime as dt
 import requests
 import glob
+import MySQLdb
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -27,6 +28,8 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("num_users", type=int, 
 	help="Number of users / size of the window")
+parser.add_argument("save_results", type=bool, 
+	help="1 = save results to MySQL, 0 = do not dave results to MySQL.")
 parser.add_argument("max_transactions", nargs='?', default=0, type=int, 
 	help="Number of transactions to load, 0 = all")
 args = parser.parse_args()
@@ -34,7 +37,7 @@ args = parser.parse_args()
 # Global variables
 
 window_size = args.num_users
-window_not_full = True
+window_full = False
 target_user = 0
 max_transactions = args.max_transactions
 bit_array = {} # armazenar os bit_vectors de todos os documentos
@@ -43,6 +46,10 @@ users_dict = {}
 pages_users = [set() for i in range(window_size)]
 frequents = {}
 num_transactions = 0
+start_t = stop_t = 0
+window_timestamp = [0] * window_size
+window_id = 0
+save_results = args.save_results
 
 def read_from_hadoop(filename):
 	from StringIO import StringIO
@@ -84,7 +91,7 @@ def user_visit_document(user_pos, document_id):
 		#G.add_node(document_id)
 		#G.add_edge(user_id,document_id)
 
-def replace_user(user_id):
+def replace_user(user_id, timestamp):
 	removed_user = users[target_user]
 	try:
 		del users_dict[removed_user]
@@ -99,32 +106,53 @@ def replace_user(user_id):
  	users[target_user] = user_id
  	pages_users[target_user] = set()
  	users_dict[user_id] = target_user
+ 	window_timestamp[target_user] = timestamp
  	#print target_user, removed_user, user_id
  	#G.add_node(user_id)
  	return removed_user
 
-def slide_window(size, document_id, user_id):
-	global target_user, window_not_full
+def slide_window(size, document_id, user_id, timestamp):
+	global target_user, window_full
  	if user_id not in users_dict:
 
-		removed_user = replace_user(user_id)
+		removed_user = replace_user(user_id, timestamp)
 	 	target_user = (target_user + 1) % window_size
-	 	if window_not_full and target_user == 0:
-	 		window_not_full = False
+	 	if not window_full and target_user == 0:
+	 		window_full = True
 
 	user_pos = users_dict[user_id]
  	user_visit_document(user_pos, document_id)
-	
+
+def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
+			cur_window_size, support, itemsets, frequent_size):
+
+	for itemset_id, itemset in enumerate(itemsets):
+		for document_id in itemset:
+			cursor.execute(""" insert into bitstream_itemsets 
+				(execution_id, window_id, window_start, window_end, window_size, support,
+					itemset_id, itemset_size, document_id
+					)
+				values (%s, %s, %s, %s, %s, %s, %s, %s, %s);
+				""", [execution_id, window_id, 
+						dt.fromtimestamp(int(timestamp_start_pos[:10])),
+						dt.fromtimestamp(int(timestamp_end_pos[:10])),
+						cur_window_size, support, itemset_id, frequent_size,
+						document_id
+						] )
+
+	db.commit()
+
 def generate_fis(frequent_size, prev_frequents):
+	global window_id
 	frequents[frequent_size] = []
 	# print "generate_fis()"
 
-	if window_not_full:
-		cur_window_size = target_user
-	else:
+	if window_full:
 		cur_window_size = window_size
+	else:
+		cur_window_size = target_user
 
-	if frequent_size == 1:
+	if frequent_size == 1:			
 		for doc_id in bit_array.keys():
 			if bit_array[doc_id].count() >= support * cur_window_size:
 				frequents[frequent_size].append(doc_id)
@@ -145,8 +173,18 @@ def generate_fis(frequent_size, prev_frequents):
 				frequents[frequent_size].append(itemset)
 
 	if frequent_size > 1 and len(frequents[frequent_size]) > 0:
+		timestamp_start_pos = window_timestamp[(target_user)%cur_window_size]
+		timestamp_end_pos   = window_timestamp[target_user-1]
+		print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
+			"to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
 		print "Support:", support * cur_window_size
 		print frequent_size, frequents[frequent_size]
+
+		if save_results:
+			save_frequents(window_id, timestamp_start_pos, timestamp_end_pos, \
+				cur_window_size, support, frequents[frequent_size], frequent_size)
+
+		window_id += 1
 
 	if len(frequents[frequent_size]) > 0:
 		generate_fis(frequent_size+1, frequents[frequent_size])
@@ -157,36 +195,35 @@ def debug_array(user_id, document_id, target_user):
 	print "Document:", document_id
 	pprint(bit_array)
 
+def print_progress(timestamp):
+	global start_t, stop_t
+	stop_t = dt.now()
+	tempo_execucao = stop_t - start_t
+	row_datetime = dt.fromtimestamp(int(timestamp[:10]))
+	if window_full:
+		cur_window_size = window_size
+	else:
+		cur_window_size = target_user
+
+	print num_transactions, "- Execution time:", \
+		tempo_execucao, \
+		"Window size:", cur_window_size, "Pages:", \
+		len(bit_array), "Row timestamp:", row_datetime
+	start_t = stop_t
+
 def process_stream_file(stream_sorted):
-	global num_transactions
+	global num_transactions, start_t, stop_t
 	start_t = stop_t = dt.now()
 	for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
 		if product_id == '1':  # G1
 			num_transactions += 1
 			if max_transactions > 0 and num_transactions > max_transactions: 
 				break
-			
-			slide_window(window_size, int(document_id), int(user_id))
-
-			# if num_transactions == 50:
-			# 	import pdb; pdb.set_trace()
+			slide_window(window_size, int(document_id), int(user_id), timestamp)
 			if num_transactions % 1000 == 0:
-				stop_t = dt.now()
-				tempo_execucao = stop_t - start_t
-				row_datetime = dt.fromtimestamp(int(timestamp[:10]))
-				if window_not_full:
-					cur_window_size = target_user
-				else:
-					cur_window_size = window_size
-				print num_transactions, "- Execution time:", \
-					tempo_execucao, \
-					"Window size:", cur_window_size, "Pages:", \
-					len(bit_array), "Row timestamp:", row_datetime
-				start_t = stop_t
-
-			if num_transactions % 10000 == 0:
+				print_progress(timestamp)
+			if num_transactions % 10000 == 0 and window_full:
 				generate_fis(1, [])
-
 			# debug_array(user_id, document_id, target_user)
 
 def get_files(local_file):
@@ -198,11 +235,21 @@ def get_files(local_file):
 	return file_list
 
 def main():
-
+	global cursor, db, execution_id
 	print "Program start..."
 
-	start_t = start = dt.now()
+	start = dt.now()
 
+	db = MySQLdb.connect("localhost","root","","stream" )
+	cursor = db.cursor()
+
+	cursor.execute(""" insert into bitstream_execution 
+		(date_execution
+			)
+		values (%s);
+		""", [start] )
+	execution_id = cursor.lastrowid
+	db.commit()
 
 	file_list = get_files(local_file)
 
@@ -227,6 +274,9 @@ def main():
 		print "Stream sorted in:", tempo_execucao 
 
 		process_stream_file(stream_sorted)
+
+		if max_transactions > 0 and num_transactions > max_transactions: 
+			break
 
 		f.close()
 
