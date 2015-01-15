@@ -77,7 +77,6 @@ while True:
 	url, n = getURL(page)
 	page = page[n:]
 	if url:
-		print url
 		urls.add(url)
 	else:
 		break
@@ -85,6 +84,6 @@ while True:
 for url in urls:
 	cursor.execute(""" insert into home_g1
 		(url, datetime_crawl, url_md5) 
-		values(%s, %s, md5(%s) ;""" , [url, datetime_crawl, url] )
+		values(%s, %s, md5(%s)) ;""" , [url, datetime_crawl, url] )
 
 db.commit()
