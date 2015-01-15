@@ -11,6 +11,7 @@ from datetime import datetime as dt
 import requests
 import glob
 import MySQLdb
+import solr
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -19,6 +20,10 @@ path = config.get('main', 'path')
 filename = config.get('main', 'filename')
 local_file = config.getboolean('main', 'local_file')
 support = config.getfloat('main', 'support')
+save_results = config.getboolean('main', 'save_results')
+solr_endpoint = config.get('main', 'solr_endpoint')
+selected_product_id = config.get('main', 'product_id')
+
 
 hadoop_server = config.get('hadoop', 'hadoop_server')
 hadoop_port = config.get('hadoop', 'hadoop_port')
@@ -28,8 +33,6 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument("num_users", type=int, 
 	help="Number of users / size of the window")
-parser.add_argument("save_results", type=bool, 
-	help="1 = save results to MySQL, 0 = do not dave results to MySQL.")
 parser.add_argument("max_transactions", nargs='?', default=0, type=int, 
 	help="Number of transactions to load, 0 = all")
 args = parser.parse_args()
@@ -48,8 +51,7 @@ frequents = {}
 num_transactions = 0
 start_t = stop_t = 0
 window_timestamp = [0] * window_size
-window_id = 0
-save_results = args.save_results
+window_id = 0 
 
 def read_from_hadoop(filename):
 	from StringIO import StringIO
@@ -62,8 +64,6 @@ def read_from_hadoop(filename):
 	r = requests.get(url, params={'op':'OPEN'})
 	s = StringIO(r.content)
 	r.close()
-	# s.write(r.content)
-	# f = s.getvalue()
 	return s
 
 def sort_by_column(csv_cont, col_index, reverse=False):
@@ -84,12 +84,9 @@ def user_visit_document(user_pos, document_id):
 	pages_users[user_pos].add(document_id)
 	try:
  		bit_array[document_id][user_pos] = True
- 		#G.add_edge(user_id,document_id)
  	except KeyError:
  		bit_array[document_id] = bitarray([False] * window_size)
  		bit_array[document_id][user_pos] = True
-		#G.add_node(document_id)
-		#G.add_edge(user_id,document_id)
 
 def replace_user(user_id, timestamp):
 	removed_user = users[target_user]
@@ -102,13 +99,10 @@ def replace_user(user_id, timestamp):
 		if bit_array[doc_id].count() == 0:
 			del bit_array[doc_id]
 
- 	#G.remove_node(removed_user)
  	users[target_user] = user_id
  	pages_users[target_user] = set()
  	users_dict[user_id] = target_user
  	window_timestamp[target_user] = timestamp
- 	#print target_user, removed_user, user_id
- 	#G.add_node(user_id)
  	return removed_user
 
 def slide_window(size, document_id, user_id, timestamp):
@@ -123,21 +117,42 @@ def slide_window(size, document_id, user_id, timestamp):
 	user_pos = users_dict[user_id]
  	user_visit_document(user_pos, document_id)
 
+def get_url_solr(document_id):
+	global s
+	response = s.query('documentId:'+str(document_id), fl="url")
+	if response.numFound == 1:
+		url = response.results[0]['url']
+		title = response.results[0]['title']
+		publish_date = response.results[0]['issued']
+		modify_date = response.results[0]['modified']
+		section = response.results[0]['section'][0]
+
+		# import pdb; pdb.set_trace()
+
+		# body = response.results[0]['body']
+		body = ""
+		publisher = response.results[0]['publisher']
+		# print result[0], "-", url
+	else:
+		url = None
+	return url
+
 def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 			cur_window_size, support, itemsets, frequent_size):
-
+	global selected_product_id
 	for itemset_id, itemset in enumerate(itemsets):
 		for document_id in itemset:
+			url = get_url_solr(document_id)
 			cursor.execute(""" insert into bitstream_itemsets 
-				(execution_id, window_id, window_start, window_end, window_size, support,
-					itemset_id, itemset_size, document_id
+				(execution_id, product_id, window_id, window_start, window_end, window_size, support,
+					itemset_id, itemset_size, document_id, url
 					)
-				values (%s, %s, %s, %s, %s, %s, %s, %s, %s);
-				""", [execution_id, window_id, 
+				values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+				""", [execution_id, selected_product_id, window_id, 
 						dt.fromtimestamp(int(timestamp_start_pos[:10])),
 						dt.fromtimestamp(int(timestamp_end_pos[:10])),
 						cur_window_size, support, itemset_id, frequent_size,
-						document_id
+						document_id, url
 						] )
 
 	db.commit()
@@ -145,7 +160,6 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 def generate_fis(frequent_size, prev_frequents):
 	global window_id
 	frequents[frequent_size] = []
-	# print "generate_fis()"
 
 	if window_full:
 		cur_window_size = window_size
@@ -211,11 +225,11 @@ def print_progress(timestamp):
 		len(bit_array), "Row timestamp:", row_datetime
 	start_t = stop_t
 
-def process_stream_file(stream_sorted):
+def process_stream_file(stream_sorted, selected_product_id):
 	global num_transactions, start_t, stop_t
 	start_t = stop_t = dt.now()
 	for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
-		if product_id == '1':  # G1
+		if product_id == selected_product_id:
 			num_transactions += 1
 			if max_transactions > 0 and num_transactions > max_transactions: 
 				break
@@ -235,7 +249,7 @@ def get_files(local_file):
 	return file_list
 
 def main():
-	global cursor, db, execution_id
+	global cursor, db, execution_id, s
 	print "Program start..."
 
 	start = dt.now()
@@ -243,13 +257,16 @@ def main():
 	db = MySQLdb.connect("localhost","root","","stream" )
 	cursor = db.cursor()
 
-	cursor.execute(""" insert into bitstream_execution 
-		(date_execution
-			)
-		values (%s);
-		""", [start] )
-	execution_id = cursor.lastrowid
-	db.commit()
+	s = solr.SolrConnection(solr_endpoint)
+
+	if save_results:
+		cursor.execute(""" insert into bitstream_execution 
+			(date_execution
+				)
+			values (%s);
+			""", [start] )
+		execution_id = cursor.lastrowid
+		db.commit()
 
 	file_list = get_files(local_file)
 
@@ -273,7 +290,7 @@ def main():
 
 		print "Stream sorted in:", tempo_execucao 
 
-		process_stream_file(stream_sorted)
+		process_stream_file(stream_sorted, selected_product_id)
 
 		if max_transactions > 0 and num_transactions > max_transactions: 
 			break
@@ -284,10 +301,6 @@ def main():
 
 	stop = dt.now()
 	tempo_execucao = stop - start 
-
-	# print "bit_array"
-	# pprint(bit_array)
-	# print users
 
 	print "Fim processamento"
 	print "Tempo de execucao:", tempo_execucao
