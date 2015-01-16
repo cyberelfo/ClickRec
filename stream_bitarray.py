@@ -19,7 +19,7 @@ config.read("./stream.ini")
 path = config.get('main', 'path')
 filename = config.get('main', 'filename')
 local_file = config.getboolean('main', 'local_file')
-support = config.getfloat('main', 'support')
+# support = config.getfloat('main', 'support')
 save_results = config.getboolean('main', 'save_results')
 solr_endpoint = config.get('main', 'solr_endpoint')
 selected_product_id = config.get('main', 'product_id')
@@ -31,15 +31,17 @@ hadoop_path = config.get('hadoop', 'hadoop_path')
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("num_users", type=int, 
+parser.add_argument("window_size", type=int, 
     help="Number of users / size of the window")
+parser.add_argument("support", type=float, 
+    help="Support in percent of transactions [1-100]")
 parser.add_argument("max_transactions", nargs='?', default=0, type=int, 
     help="Number of transactions to load, 0 = all")
 args = parser.parse_args()
 
 # Global variables
 
-window_size = args.num_users
+window_size = args.window_size
 window_full = False
 target_user = 0
 max_transactions = args.max_transactions
@@ -52,6 +54,7 @@ num_transactions = 0
 start_t = stop_t = 0
 window_timestamp = [0] * window_size
 window_id = 0 
+support = args.support / 100.0
 
 def read_from_hadoop(filename):
     from StringIO import StringIO
