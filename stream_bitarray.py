@@ -53,8 +53,16 @@ frequents = {}
 num_transactions = 0
 start_t = stop_t = 0
 window_timestamp = [0] * window_size
-window_id = 0 
 support = args.support / 100.0
+delete_bounce_users = True
+
+def window_id_generator():
+    window_id = 0
+    while True:
+        yield window_id
+        window_id += 1
+
+window_id_gen = window_id_generator()
 
 def read_from_hadoop(filename):
     from StringIO import StringIO
@@ -83,42 +91,56 @@ def sort_by_column(csv_cont, col_index, reverse=False):
            reverse=reverse)
     return body
 
-def user_visit_document(user_pos, document_id):
-    pages_users[user_pos].add(document_id)
+def user_visit_document(user_index, document_id):
+    pages_users[user_index].add(document_id)
     try:
-        bit_array[document_id][user_pos] = True
+        bit_array[document_id][user_index] = True
     except KeyError:
         bit_array[document_id] = bitarray([False] * window_size)
-        bit_array[document_id][user_pos] = True
+        bit_array[document_id][user_index] = True
+
+def zero_column(user_index, bit_array):
+    for doc_id in pages_users[user_index]:
+        bit_array[doc_id][user_index] = False
+        if bit_array[doc_id].count() == 0:
+            del bit_array[doc_id]
+
 
 def replace_user(user_id, timestamp):
+    global target_user
+
+    candidate_1_index = target_user
+    candidate_2_index = (target_user + 1) % window_size
+
+    candidate_1_count = len(pages_users[candidate_1_index])
+    candidate_2_count = len(pages_users[candidate_2_index])
+
+    if candidate_1_count > candidate_2_count:
+        target_user = candidate_2_index
+
     removed_user = users[target_user]
     try:
         del users_dict[removed_user]
     except KeyError:
         removed_user = None
-    for doc_id in pages_users[target_user]:
-        bit_array[doc_id][target_user] = False
-        if bit_array[doc_id].count() == 0:
-            del bit_array[doc_id]
+    zero_column(target_user, bit_array)
 
     users[target_user] = user_id
     pages_users[target_user] = set()
     users_dict[user_id] = target_user
     window_timestamp[target_user] = timestamp
+    target_user = (target_user + 1) % window_size
     return removed_user
 
 def slide_window(size, document_id, user_id, timestamp):
-    global target_user, window_full
+    global window_full
     if user_id not in users_dict:
 
         removed_user = replace_user(user_id, timestamp)
-        target_user = (target_user + 1) % window_size
-        if not window_full and target_user == 0:
-            window_full = True
+        window_full = len(users_dict) == window_size
 
-    user_pos = users_dict[user_id]
-    user_visit_document(user_pos, document_id)
+    user_index = users_dict[user_id]
+    user_visit_document(user_index, document_id)
 
 def get_url_solr(document_id):
     global s
@@ -160,14 +182,22 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 
     db.commit()
 
-def generate_fis(frequent_size, prev_frequents):
-    global window_id
-    frequents[frequent_size] = []
+def generate_fis(frequent_size, prev_frequents, bit_array):
+    cur_window_size = len(users_dict)
+    if delete_bounce_users:
+        bit_array = {k:v.copy() for k, v in bit_array.items()}
+        bounce_users = [user_index for user_index, v in enumerate(pages_users) if len(v)==1]
+        for user_index in bounce_users:
+            zero_column(user_index, bit_array)
 
-    if window_full:
-        cur_window_size = window_size
-    else:
-        cur_window_size = target_user
+        cur_window_size -= len(bounce_users)
+        print "Usuários removidos:", len(bounce_users), "Window size:", cur_window_size
+
+    recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size)
+
+def recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size):
+
+    frequents[frequent_size] = []
 
     if frequent_size == 1:          
         for doc_id in bit_array.keys():
@@ -198,13 +228,12 @@ def generate_fis(frequent_size, prev_frequents):
         print frequent_size, frequents[frequent_size]
 
         if save_results:
-            save_frequents(window_id, timestamp_start_pos, timestamp_end_pos, \
+            save_frequents(window_id_gen.next(), timestamp_start_pos, timestamp_end_pos, \
                 cur_window_size, support, frequents[frequent_size], frequent_size)
 
-        window_id += 1
 
     if len(frequents[frequent_size]) > 0:
-        generate_fis(frequent_size+1, frequents[frequent_size])
+        recursive_generate_fis(frequent_size+1, frequents[frequent_size], bit_array, cur_window_size)
 
 def debug_array(user_id, document_id, target_user):
     print ""
@@ -225,7 +254,7 @@ def print_progress(timestamp):
     print num_transactions, "- Execution time:", \
         tempo_execucao, \
         "Window size:", cur_window_size, "Pages:", \
-        len(bit_array), "Row timestamp:", row_datetime
+        len(bit_array), "Row timestamp:", row_datetime, "Users", len(users_dict)
     start_t = stop_t
 
 def process_stream_file(stream_sorted, selected_product_id):
@@ -233,6 +262,7 @@ def process_stream_file(stream_sorted, selected_product_id):
     start_t = stop_t = dt.now()
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
+            # import pdb; pdb.set_trace()
             num_transactions += 1
             if max_transactions > 0 and num_transactions > max_transactions: 
                 break
@@ -240,7 +270,7 @@ def process_stream_file(stream_sorted, selected_product_id):
             if num_transactions % 1000 == 0:
                 print_progress(timestamp)
             if num_transactions % 10000 == 0 and window_full:
-                generate_fis(1, [])
+                generate_fis(1, [], bit_array)
             # debug_array(user_id, document_id, target_user)
 
 def get_files(local_file):
@@ -300,7 +330,7 @@ def main():
 
         f.close()
 
-    generate_fis(1, [])
+    generate_fis(1, [], bit_array)
 
     stop = dt.now()
     tempo_execucao = stop - start 
