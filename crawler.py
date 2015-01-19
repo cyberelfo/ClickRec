@@ -64,8 +64,8 @@ page = str(BeautifulSoup(response.content))
 
 datetime_crawl = datetime.now()
 
-s = Screenshot()
-s.capture(url, './output/G1Home_'+ datetime_crawl.strftime("%Y_%m_%d_%H_%M_%S") +'.png')
+# s = Screenshot()
+# s.capture(url, './output/G1Home_'+ datetime_crawl.strftime("%Y_%m_%d_%H_%M_%S") +'.png')
 
 db = MySQLdb.connect("localhost","root","","stream" )
 cursor = db.cursor()
