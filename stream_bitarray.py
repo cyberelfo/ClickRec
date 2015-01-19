@@ -19,11 +19,12 @@ config.read("./stream.ini")
 path = config.get('main', 'path')
 filename = config.get('main', 'filename')
 local_file = config.getboolean('main', 'local_file')
-# support = config.getfloat('main', 'support')
 save_results = config.getboolean('main', 'save_results')
 solr_endpoint = config.get('main', 'solr_endpoint')
 selected_product_id = config.get('main', 'product_id')
-
+keep_heavy_users = config.getboolean('main', 'keep_heavy_users')
+remove_bounce_users = config.getboolean('main', 'remove_bounce_users')
+max_fi_size = config.getint('main', 'max_fi_size')
 
 hadoop_server = config.get('hadoop', 'hadoop_server')
 hadoop_port = config.get('hadoop', 'hadoop_port')
@@ -54,15 +55,16 @@ num_transactions = 0
 start_t = stop_t = 0
 window_timestamp = [0] * window_size
 support = args.support / 100.0
-delete_bounce_users = True
+last_generate_fis = None
+window_id = 0
 
-def window_id_generator():
-    window_id = 0
-    while True:
-        yield window_id
-        window_id += 1
-
-window_id_gen = window_id_generator()
+# def window_id_generator():
+#     window_id = 0
+#     while True:
+#         yield window_id
+#         window_id += 1
+# 
+# window_id_gen = window_id_generator()
 
 def read_from_hadoop(filename):
     from StringIO import StringIO
@@ -109,14 +111,15 @@ def zero_column(user_index, bit_array):
 def replace_user(user_id, timestamp):
     global target_user
 
-    candidate_1_index = target_user
-    candidate_2_index = (target_user + 1) % window_size
+    if keep_heavy_users:
+        candidate_1_index = target_user
+        candidate_2_index = (target_user + 1) % window_size
 
-    candidate_1_count = len(pages_users[candidate_1_index])
-    candidate_2_count = len(pages_users[candidate_2_index])
+        candidate_1_count = len(pages_users[candidate_1_index])
+        candidate_2_count = len(pages_users[candidate_2_index])
 
-    if candidate_1_count > candidate_2_count:
-        target_user = candidate_2_index
+        if candidate_1_count > candidate_2_count:
+            target_user = candidate_2_index
 
     removed_user = users[target_user]
     try:
@@ -170,21 +173,24 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
             url = get_url_solr(document_id)
             cursor.execute(""" insert into bitstream_itemsets 
                 (execution_id, product_id, window_id, window_start, window_end, window_size, support,
-                    itemset_id, itemset_size, document_id, url
+                    itemset_id, itemset_size, document_id, keep_heavy_users, remove_bounce_users, url
                     )
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, [execution_id, selected_product_id, window_id, 
                         dt.fromtimestamp(int(timestamp_start_pos[:10])),
                         dt.fromtimestamp(int(timestamp_end_pos[:10])),
                         cur_window_size, support, itemset_id, frequent_size,
-                        document_id, url
+                        document_id, keep_heavy_users, remove_bounce_users, url
                         ] )
 
     db.commit()
 
-def generate_fis(frequent_size, prev_frequents, bit_array):
+def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size):
+    global window_id
+    print 
+
     cur_window_size = len(users_dict)
-    if delete_bounce_users:
+    if remove_bounce_users:
         bit_array = {k:v.copy() for k, v in bit_array.items()}
         bounce_users = [user_index for user_index, v in enumerate(pages_users) if len(v)==1]
         for user_index in bounce_users:
@@ -193,9 +199,14 @@ def generate_fis(frequent_size, prev_frequents, bit_array):
         cur_window_size -= len(bounce_users)
         print "Usuários removidos:", len(bounce_users), "Window size:", cur_window_size
 
-    recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size)
+    recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size, max_fi_size)
+    tempo_execucao = calculate_interval()
+    window_id += 1
+    print "execution time:", tempo_execucao
+    print
 
-def recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size):
+def recursive_generate_fis(frequent_size, prev_frequents, bit_array,\
+    cur_window_size, max_fi_size):
 
     frequents[frequent_size] = []
 
@@ -228,12 +239,14 @@ def recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_
         print frequent_size, frequents[frequent_size]
 
         if save_results:
-            save_frequents(window_id_gen.next(), timestamp_start_pos, timestamp_end_pos, \
+            save_frequents(window_id, timestamp_start_pos, timestamp_end_pos, \
                 cur_window_size, support, frequents[frequent_size], frequent_size)
 
 
-    if len(frequents[frequent_size]) > 0:
-        recursive_generate_fis(frequent_size+1, frequents[frequent_size], bit_array, cur_window_size)
+    if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
+        # import pdb; pdb.set_trace()
+        recursive_generate_fis(frequent_size+1, frequents[frequent_size], bit_array, \
+            cur_window_size, max_fi_size)
 
 def debug_array(user_id, document_id, target_user):
     print ""
@@ -241,11 +254,17 @@ def debug_array(user_id, document_id, target_user):
     print "Document:", document_id
     pprint(bit_array)
 
-def print_progress(timestamp):
+def calculate_interval():
     global start_t, stop_t
     stop_t = dt.now()
     tempo_execucao = stop_t - start_t
+    start_t = stop_t
+    return tempo_execucao
+
+
+def print_progress(timestamp):
     row_datetime = dt.fromtimestamp(int(timestamp[:10]))
+    tempo_execucao = calculate_interval()
     if window_full:
         cur_window_size = window_size
     else:
@@ -255,22 +274,28 @@ def print_progress(timestamp):
         tempo_execucao, \
         "Window size:", cur_window_size, "Pages:", \
         len(bit_array), "Row timestamp:", row_datetime, "Users", len(users_dict)
-    start_t = stop_t
 
 def process_stream_file(stream_sorted, selected_product_id):
-    global num_transactions, start_t, stop_t
+    global num_transactions, start_t, stop_t, last_generate_fis
     start_t = stop_t = dt.now()
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
             # import pdb; pdb.set_trace()
             num_transactions += 1
+            if last_generate_fis == None:
+                last_generate_fis = dt.fromtimestamp(int(timestamp[:10]))
             if max_transactions > 0 and num_transactions > max_transactions: 
                 break
             slide_window(window_size, int(document_id), int(user_id), timestamp)
             if num_transactions % 1000 == 0:
                 print_progress(timestamp)
-            if num_transactions % 10000 == 0 and window_full:
-                generate_fis(1, [], bit_array)
+            # if num_transactions % 10000 == 0 and window_full:
+            #     generate_fis(1, [], bit_array, max_fi_size)
+            click_stream_interval = dt.fromtimestamp(int(timestamp[:10])) - last_generate_fis
+            if window_full and click_stream_interval.seconds >= 60*10 :
+                print_progress(timestamp)
+                generate_fis(1, [], bit_array, max_fi_size)
+                last_generate_fis = dt.fromtimestamp(int(timestamp[:10]))
             # debug_array(user_id, document_id, target_user)
 
 def get_files(local_file):
@@ -330,7 +355,7 @@ def main():
 
         f.close()
 
-    generate_fis(1, [], bit_array)
+    generate_fis(1, [], bit_array, max_fi_size)
 
     stop = dt.now()
     tempo_execucao = stop - start 
