@@ -8,10 +8,12 @@ from bitarray import bitarray
 import argparse
 import ConfigParser
 from datetime import datetime as dt
+from datetime import timedelta
 import requests
 import glob
 import MySQLdb
 import solr
+
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -55,7 +57,7 @@ num_transactions = 0
 start_t = stop_t = 0
 window_timestamp = [0] * window_size
 support = args.support / 100.0
-last_generate_fis = None
+next_generate_fis = None
 window_id = 0
 
 # def window_id_generator():
@@ -78,6 +80,17 @@ def read_from_hadoop(filename):
     s = StringIO(r.content)
     r.close()
     return s
+
+def next_round_datetime(cur_datetime, interval):
+    #how many secs have passed this hour
+    nsecs = cur_datetime.minute*60+cur_datetime.second+cur_datetime.microsecond*1e-6  
+    #number of seconds to next quarter hour mark
+    #Non-analytic (brute force is fun) way:  
+    #   delta = next(x for x in xrange(0,3601,900) if x>=nsecs) - nsecs
+    #anlytic (ARGV BATMAN!, what is going on with that expression) way:
+    delta = (nsecs//(interval*60))*(interval*60)+(interval*60)-nsecs
+    #time + number of seconds to quarter hour mark.
+    return cur_datetime + timedelta(seconds=delta)
 
 def sort_by_column(csv_cont, col_index, reverse=False):
     """ 
@@ -166,17 +179,19 @@ def get_url_solr(document_id):
     return url
 
 def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
-            cur_window_size, support, itemsets, frequent_size):
+            cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis):
     global selected_product_id
+
     for itemset_id, itemset in enumerate(itemsets):
         for document_id in itemset:
             url = get_url_solr(document_id)
             cursor.execute(""" insert into bitstream_itemsets 
-                (execution_id, product_id, window_id, window_start, window_end, window_size, support,
+                (execution_id, product_id, window_id, window_timestamp, window_start, window_end, window_size, support,
                     itemset_id, itemset_size, document_id, keep_heavy_users, remove_bounce_users, url
                     )
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                 """, [execution_id, selected_product_id, window_id, 
+                        timestamp_generate_fis,
                         dt.fromtimestamp(int(timestamp_start_pos[:10])),
                         dt.fromtimestamp(int(timestamp_end_pos[:10])),
                         cur_window_size, support, itemset_id, frequent_size,
@@ -185,7 +200,7 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 
     db.commit()
 
-def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size):
+def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size, timestamp_generate_fis):
     global window_id
     print 
 
@@ -200,10 +215,26 @@ def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size):
         print "Usuários removidos:", len(bounce_users), "Window size:", cur_window_size
 
     recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size, max_fi_size)
-    tempo_execucao = calculate_interval()
+
+    # Print all frequents
+    timestamp_start_pos = window_timestamp[(target_user)%cur_window_size]
+    timestamp_end_pos   = window_timestamp[target_user-1]
+    for frequent_size, itemsets in frequents.items():
+        if frequent_size > 1 and frequent_size <= max_fi_size:
+            print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
+                "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
+            print "Support:", support * cur_window_size
+            print frequent_size, itemsets
+
+            if save_results:
+                save_frequents(window_id, timestamp_start_pos, timestamp_end_pos, \
+                    cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis)
+
+    execution_time = calculate_interval()
     window_id += 1
-    print "execution time:", tempo_execucao
+    print "execution time:", execution_time
     print
+
 
 def recursive_generate_fis(frequent_size, prev_frequents, bit_array,\
     cur_window_size, max_fi_size):
@@ -230,18 +261,6 @@ def recursive_generate_fis(frequent_size, prev_frequents, bit_array,\
             if bit_vector.count() >= support * cur_window_size:
                 frequents[frequent_size].append(itemset)
 
-    if frequent_size > 1 and len(frequents[frequent_size]) > 0:
-        timestamp_start_pos = window_timestamp[(target_user)%cur_window_size]
-        timestamp_end_pos   = window_timestamp[target_user-1]
-        print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
-            "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
-        print "Support:", support * cur_window_size
-        print frequent_size, frequents[frequent_size]
-
-        if save_results:
-            save_frequents(window_id, timestamp_start_pos, timestamp_end_pos, \
-                cur_window_size, support, frequents[frequent_size], frequent_size)
-
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
         # import pdb; pdb.set_trace()
@@ -257,45 +276,47 @@ def debug_array(user_id, document_id, target_user):
 def calculate_interval():
     global start_t, stop_t
     stop_t = dt.now()
-    tempo_execucao = stop_t - start_t
+    execution_time = stop_t - start_t
     start_t = stop_t
-    return tempo_execucao
+    return execution_time
 
 
 def print_progress(timestamp):
     row_datetime = dt.fromtimestamp(int(timestamp[:10]))
-    tempo_execucao = calculate_interval()
+    execution_time = calculate_interval()
     if window_full:
         cur_window_size = window_size
     else:
         cur_window_size = target_user
 
     print num_transactions, "- Execution time:", \
-        tempo_execucao, \
+        execution_time, \
         "Window size:", cur_window_size, "Pages:", \
         len(bit_array), "Row timestamp:", row_datetime, "Users", len(users_dict)
 
 def process_stream_file(stream_sorted, selected_product_id):
-    global num_transactions, start_t, stop_t, last_generate_fis
+    global num_transactions, start_t, stop_t, next_generate_fis
     start_t = stop_t = dt.now()
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
             # import pdb; pdb.set_trace()
             num_transactions += 1
-            if last_generate_fis == None:
-                last_generate_fis = dt.fromtimestamp(int(timestamp[:10]))
+            cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
             if max_transactions > 0 and num_transactions > max_transactions: 
                 break
+
             slide_window(window_size, int(document_id), int(user_id), timestamp)
+
             if num_transactions % 1000 == 0:
                 print_progress(timestamp)
             # if num_transactions % 10000 == 0 and window_full:
             #     generate_fis(1, [], bit_array, max_fi_size)
-            click_stream_interval = dt.fromtimestamp(int(timestamp[:10])) - last_generate_fis
-            if window_full and click_stream_interval.seconds >= 60*10 :
+            if window_full and next_generate_fis == None:
+                next_generate_fis = next_round_datetime(cur_datetime, 5)
+            if window_full and cur_datetime >= next_generate_fis:
                 print_progress(timestamp)
-                generate_fis(1, [], bit_array, max_fi_size)
-                last_generate_fis = dt.fromtimestamp(int(timestamp[:10]))
+                generate_fis(1, [], bit_array, max_fi_size, next_generate_fis)
+                next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), 5)
             # debug_array(user_id, document_id, target_user)
 
 def get_files(local_file):
@@ -346,9 +367,9 @@ def main():
         stream_sorted = sort_by_column(stream, 5)
 
         stop = dt.now()
-        tempo_execucao = stop - start 
+        execution_time = stop - start 
 
-        print "Stream sorted in:", tempo_execucao 
+        print "Stream sorted in:", execution_time 
 
         process_stream_file(stream_sorted, selected_product_id)
 
@@ -357,13 +378,18 @@ def main():
 
         f.close()
 
-    generate_fis(1, [], bit_array, max_fi_size)
-
     stop = dt.now()
-    tempo_execucao = stop - start 
+    execution_time = stop - start 
 
-    print "Fim processamento"
-    print "Tempo de execucao:", tempo_execucao
+    if save_results:
+        cursor.execute(""" update bitstream_execution 
+            set execution_time = %s
+            where id = %s;
+            """, [execution_time.seconds, execution_id] )
+        db.commit()
+
+    print "End processing"
+    print "Execution time:", execution_time
 
 if __name__ == '__main__':
     main()

@@ -87,3 +87,37 @@ CREATE TABLE `itemset` (
   `na_home` TINYINT(24) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `bitstream_execution` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `date_execution` datetime DEFAULT NULL,
+  `product_id` int(11) DEFAULT NULL,
+  `window_size` int(11) DEFAULT NULL,
+  `support` float DEFAULT NULL,
+  `keep_heavy_users` tinyint(11) DEFAULT NULL,
+  `remove_bounce_users` tinyint(11) DEFAULT NULL,
+  `max_fi_size` tinyint(11) DEFAULT NULL,
+  `execution_time` int(10) unsigned DEFAULT NULL,
+  `obs` varchar(1000) DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `bitstream_itemsets` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `execution_id` int(11) DEFAULT NULL,
+  `product_id` int(11) DEFAULT NULL,
+  `window_id` int(11) DEFAULT NULL,
+  `window_timestamp` datetime DEFAULT NULL,
+  `window_start` datetime DEFAULT NULL,
+  `window_end` datetime DEFAULT NULL,
+  `window_size` int(11) DEFAULT NULL,
+  `support` float DEFAULT NULL,
+  `itemset_id` int(11) DEFAULT NULL,
+  `itemset_size` int(11) DEFAULT NULL,
+  `document_id` bigint(20) DEFAULT NULL,
+  `keep_heavy_users` tinyint(4) DEFAULT NULL,
+  `remove_bounce_users` tinyint(4) DEFAULT NULL,
+  `url` varchar(1000) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `execution_idx` (`execution_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
