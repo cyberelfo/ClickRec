@@ -319,10 +319,12 @@ def main():
 
     if save_results:
         cursor.execute(""" insert into bitstream_execution 
-            (date_execution
+            (date_execution, product_id, window_size, support, keep_heavy_users, \
+                remove_bounce_users, max_fi_size
                 )
-            values (%s);
-            """, [start] )
+            values (%s, %s, %s, %s, %s, %s, %s);
+            """, [start, selected_product_id, window_size, support, keep_heavy_users,
+                remove_bounce_users, max_fi_size] )
         execution_id = cursor.lastrowid
         db.commit()
 
