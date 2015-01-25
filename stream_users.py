@@ -49,8 +49,8 @@ def process_stream():
 
         for cur_product_id, _type, document_id, provider_id, user_id, timestamp in stream:
             num_transactions += 1
-            if num_transactions > 50000:
-                break
+            # if num_transactions > 50000:
+            #     break
             if num_transactions % 100000 == 0:
                 elapsed_10k = datetime.now() - start_10k
                 start_10k = datetime.now()
@@ -95,12 +95,12 @@ def count_users(users):
             page_count[users_count[user_id]] += 1
 
     bar.finish()
-    pprint(page_count)
+
     elapsed = datetime.now() - start_count
     print
     print "Counting total time:", elapsed
     print
-    return users_count
+    return users_count, page_count
 
 def get_site_solr(document_id):
     global s, all_pages
@@ -149,11 +149,26 @@ def model_path(users, users_count):
     print len(all_models)
     print "Model total time:", elapsed
     print
+
     return all_models
+
+def save_page_counts(users_count):
+    global cursor, db
+    print "Saving models..."
+    for path_size, total_users in users_count.items():
+        print path_size, total_users
+        cursor.execute(""" insert into path_sizes_new 
+            (path_size, total_users)
+            values(%s, %s)
+            """, [path_size, total_users] )
+    db.commit()
+
 
 def save_models(all_models):
     global cursor, db
     print "Saving models..."
+    bar = Bar('Progress', max=len(all_models)/1000)
+
     db.begin()
     results = []
     for model_id, sites in enumerate(all_models):
@@ -161,6 +176,7 @@ def save_models(all_models):
             results.append([sequence_id, model_id, site])
 
         if model_id % 1000 == 0:
+            bar.next()
             cursor.executemany(""" insert into users_model 
                 (sequence_id, model_id, site_name)
                 values(%s, %s, %s)
@@ -174,6 +190,7 @@ def save_models(all_models):
             values(%s, %s, %s)
             """, (results) )
         db.commit()
+    bar.finish()
 
 
 
@@ -191,7 +208,8 @@ def main():
     start = datetime.now()
 
     users = process_stream()
-    users_count = count_users(users)
+    users_count, page_count = count_users(users)
+    save_page_counts(page_count)
     all_models = model_path(users, users_count)
     save_models(all_models)
 
