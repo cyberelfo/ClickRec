@@ -80,6 +80,7 @@ def process_stream():
 
 def count_users(users):
     start_count = datetime.now()
+    print "Counting users..."
     bar = Bar('Progress', max=len(users)/1000)
     page_count = {}
     users_count = {}
@@ -111,7 +112,6 @@ def get_site_solr(document_id):
 
         response = s.query('documentId:'+str(document_id), fl="site")
         if response.numFound == 1:
-            body = ""
             if 'site' in response.results[0]:
                 site = response.results[0]['site']
             # import pdb; pdb.set_trace()
@@ -122,6 +122,8 @@ def get_site_solr(document_id):
 
 def model_path(users, users_count):
     start_model = datetime.now()
+    print "Generation models..."
+
     total_users = len(users)
     bar = Bar('Progress', max=total_users/100)
     # import pdb; pdb.set_trace()
@@ -154,9 +156,9 @@ def model_path(users, users_count):
 
 def save_page_counts(users_count):
     global cursor, db
-    print "Saving models..."
+    print "Saving path sizes..."
     for path_size, total_users in users_count.items():
-        print path_size, total_users
+        # print path_size, total_users
         cursor.execute(""" insert into path_sizes_new 
             (path_size, total_users)
             values(%s, %s)
