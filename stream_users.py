@@ -18,6 +18,7 @@ path = config.get('main', 'path')
 filename = config.get('main', 'filename')
 product_id = config.get('main', 'product_id')
 solr_endpoint = config.get('main', 'solr_endpoint')
+save_results = config.getboolean('main', 'save_results')
 
 parser = argparse.ArgumentParser()
 parser.add_argument("max_files", type=int,
@@ -26,7 +27,10 @@ args = parser.parse_args()
 
 max_files = args.max_files
 
-all_pages = {}
+cache_pages = {}
+
+total_hit = 0
+total_miss = 0
 
 def get_files():
     file_list = glob.glob(path + "*.log")
@@ -104,19 +108,22 @@ def count_users(users):
     return users_count, page_count
 
 def get_site_solr(document_id):
-    global s, all_pages
-    if document_id in all_pages:
-        site = all_pages[document_id]
+    global s, cache_pages, total_hit, total_miss
+    if document_id in cache_pages:
+        site = cache_pages[document_id]
+        total_hit += 1
     else:
+        total_miss += 1
         site = None
 
         response = s.query('documentId:'+str(document_id), fl="site")
         if response.numFound == 1:
+            body = ""
             if 'site' in response.results[0]:
                 site = response.results[0]['site']
             # import pdb; pdb.set_trace()
 
-        all_pages[document_id] = site
+        cache_pages[document_id] = site
 
     return site
 
@@ -127,7 +134,7 @@ def model_path(users, users_count):
     total_users = len(users)
     bar = Bar('Progress', max=total_users/100)
     # import pdb; pdb.set_trace()
-    all_models = set()
+    all_models = {}
     counter = 0
     for user_id, pages_visited in users.items():
         counter += 1
@@ -140,16 +147,23 @@ def model_path(users, users_count):
             for page in pages_visited:
                 pagesite = get_site_solr(page)
                 site_list.append(pagesite)
-            all_models.add(tuple(site_list))
-        # if counter >= 5000:
-        #     break
+            tuple_model = tuple(site_list)
+            if tuple_model in all_models:
+                all_models[tuple_model] += 1
+            else:
+                all_models[tuple_model] = 1
+
+        # if counter >= 50:
+            # break
+            # import pdb; pdb.set_trace()
 
     bar.finish()
 
     elapsed = datetime.now() - start_model
     print
-    print len(all_models)
+    print "Total models...", len(all_models)
     print "Model total time:", elapsed
+    print total_hit, total_miss
     print
 
     return all_models
@@ -172,25 +186,41 @@ def save_models(all_models):
     bar = Bar('Progress', max=len(all_models)/1000)
 
     db.begin()
-    results = []
-    for model_id, sites in enumerate(all_models):
-        for sequence_id, site in enumerate(sites):
-            results.append([sequence_id, model_id, site])
+    results_models = []
+    results_items = []
+    model_id = 0
+    # import pdb; pdb.set_trace()
+    for sites, count_model in all_models.items():
+        results_models.append([model_id, len(sites), count_model])
+        for sequence_id, site_name in enumerate(sites):
+            results_items.append([model_id, sequence_id, site_name])
 
-        if model_id % 1000 == 0:
+        if model_id > 0 and model_id % 1000 == 0:
             bar.next()
-            cursor.executemany(""" insert into users_model 
-                (sequence_id, model_id, site_name)
+            cursor.executemany(""" insert into users_model_items 
+                (model_id, sequence_id, site_name)
                 values(%s, %s, %s)
-                """, (results) )
+                """, (results_items) )
+            cursor.executemany(""" insert into users_model 
+                (model_id, model_size, count_model)
+                values(%s, %s, %s)
+                """, (results_models) )
             db.commit()
             db.begin()
-            results = []
-    if len(results) > 0:
-        cursor.executemany(""" insert into users_model 
-            (sequence_id, model_id, site_name)
+            results_items = []
+            results_models = []
+
+        model_id += 1
+
+    if len(results_models) > 0:
+        cursor.executemany(""" insert into users_model_items 
+            (model_id, sequence_id, site_name)
             values(%s, %s, %s)
-            """, (results) )
+            """, (results_items) )
+        cursor.executemany(""" insert into users_model 
+            (model_id, model_size, count_model)
+            values(%s, %s, %s)
+            """, (results_models) )
         db.commit()
     bar.finish()
 
@@ -211,9 +241,10 @@ def main():
 
     users = process_stream()
     users_count, page_count = count_users(users)
-    save_page_counts(page_count)
     all_models = model_path(users, users_count)
-    save_models(all_models)
+    if save_results:
+        save_page_counts(page_count)
+        save_models(all_models)
 
     stop = datetime.now()
     execution_time = stop - start 
