@@ -142,16 +142,15 @@ def model_path(users, users_count):
             bar.next()
         # pages_count = len(pages_visited)
         # if pages_count > 1 and pages_count <= max_path:
-        if users_count[user_id] > 1 :
-            site_list = []
-            for page in pages_visited:
-                pagesite = get_site_solr(page)
-                site_list.append(pagesite)
-            tuple_model = tuple(site_list)
-            if tuple_model in all_models:
-                all_models[tuple_model] += 1
-            else:
-                all_models[tuple_model] = 1
+        site_list = []
+        for page in pages_visited:
+            pagesite = get_site_solr(page)
+            site_list.append(pagesite)
+        tuple_model = tuple(site_list)
+        if tuple_model in all_models:
+            all_models[tuple_model] += 1
+        else:
+            all_models[tuple_model] = 1
 
         # if counter >= 50:
             # break
