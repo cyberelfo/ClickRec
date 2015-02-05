@@ -182,6 +182,16 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
             cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis):
     global selected_product_id
 
+    cursor.execute(""" insert into bitstream_windows 
+        (execution_id, window_id, window_timestamp, window_start, window_end, window_size
+            )
+        values (%s, %s, %s, %s, %s, %s);
+        """, [execution_id, window_id, timestamp_generate_fis,
+                dt.fromtimestamp(int(timestamp_start_pos[:10])),
+                dt.fromtimestamp(int(timestamp_end_pos[:10])),
+                cur_window_size
+                ] )
+
     for itemset_id, itemset in enumerate(itemsets):
         for document_id in itemset:
             url = get_url_solr(document_id)

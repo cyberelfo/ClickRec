@@ -121,3 +121,12 @@ CREATE TABLE `bitstream_itemsets` (
   PRIMARY KEY (`id`),
   KEY `execution_idx` (`execution_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `bitstream_windows` (
+  `execution_id` int(11) DEFAULT NULL,
+  `window_id` int(11) DEFAULT NULL,
+  `window_timestamp` datetime DEFAULT NULL,
+  `window_start` datetime DEFAULT NULL,
+  `window_end` datetime DEFAULT NULL,
+  `window_size` int(11) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
