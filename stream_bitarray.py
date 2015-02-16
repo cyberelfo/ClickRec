@@ -60,7 +60,6 @@ window_timestamp = [0] * window_size
 support = args.support / 100.0
 next_generate_fis = None
 window_id = 0
-do_recommendation = False
 
 # def window_id_generator():
 #     window_id = 0
@@ -151,11 +150,7 @@ def replace_user(user_id, timestamp):
     return removed_user
 
 def slide_window(size, document_id, user_id, timestamp):
-    global window_full, do_recommendation
-
-    if do_recommendation:
-        recommend(document_id)
-        do_recommendation = False
+    global window_full
 
     if user_id not in users_dict:
 
@@ -175,6 +170,17 @@ def recommend(document_id):
     print "Document:", document_id
     print "Recommendations:", recommendations
     print
+
+    # import pdb; pdb.set_trace()
+
+def low_bit_array(bit_array):
+    cur_window_size = len(users_dict)
+    l_bit_array = {}
+    for doc_id in bit_array.keys():
+        if bit_array[doc_id].count() < cur_window_size / 100 :
+            l_bit_array[doc_id] = bit_array[doc_id]
+
+    return l_bit_array
 
 def get_url_solr(document_id):
     global s
@@ -196,8 +202,9 @@ def get_url_solr(document_id):
         url = None
     return url
 
+
 def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
-            cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis):
+    cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis):
     global selected_product_id
 
     cursor.execute(""" insert into bitstream_windows 
@@ -228,31 +235,69 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 
     db.commit()
 
-def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size, timestamp_generate_fis):
+def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size, 
+    timestamp_generate_fis, document_id):
     global window_id
     print 
+    print "1:", dt.now()
 
     cur_window_size = len(users_dict)
     if remove_bounce_users:
+        print "2:", dt.now()
         bit_array = {k:v.copy() for k, v in bit_array.items()}
+        print "3:", dt.now()
         bounce_users = [user_index for user_index, v in enumerate(pages_users) if len(v)==1]
+        print "4:", dt.now()
         for user_index in bounce_users:
             zero_column(user_index, bit_array)
+
+        print "5:", dt.now()
 
         print "Window size:", cur_window_size
         cur_window_size -= len(bounce_users)
         print "Deleted transactions:", len(bounce_users), "Window size:", cur_window_size
 
-    recursive_generate_fis(frequent_size, prev_frequents, bit_array, cur_window_size, max_fi_size)
+    if document_id == 0:
+        cur_support = support
+        recursive_generate_fis(frequent_size, prev_frequents, bit_array, 
+            cur_window_size, max_fi_size, cur_support, document_id)
+    elif document_id in bit_array:
+        print "document_id:", document_id
+        # import pdb; pdb.set_trace()
+
+
+        upper_bound = bit_array[document_id].count()
+        lower_bound = 1
+        while True:
+            if upper_bound == lower_bound:
+                cur_support = 0
+                break
+            support_count = (upper_bound + lower_bound) / 2
+            print "Support Count:", support_count
+            cur_support = float(support_count) / float(cur_window_size)
+            recursive_generate_fis(frequent_size, prev_frequents, bit_array, 
+                cur_window_size, max_fi_size, cur_support, document_id)
+            print "Size:", len(frequents[2])
+            if len(frequents[2]) >= 5 and len(frequents[2]) <= 10:
+                break
+            elif len(frequents[2]) > 10:
+                lower_bound = support_count + 1
+            elif len(frequents[2]) < 5:
+                upper_bound = support_count
+    else:
+        print "document_id:", document_id, "not found"
+        return
+
+
 
     # Print all frequents
-    timestamp_start_pos = window_timestamp[(target_user)%cur_window_size]
+    timestamp_start_pos = window_timestamp[(target_user)%len(users_dict)]
     timestamp_end_pos   = window_timestamp[target_user-1]
     for frequent_size, itemsets in frequents.items():
         if frequent_size > 1 and frequent_size <= max_fi_size:
             print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
                 "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
-            print "Support:", support * cur_window_size
+            print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
             print frequent_size, itemsets
             print "Total itemsets:", len(itemsets)
             print
@@ -266,15 +311,17 @@ def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size, timestam
     print "Execution time:", execution_time
     print
 
+    # import pdb; pdb.set_trace()
+
 
 def recursive_generate_fis(frequent_size, prev_frequents, bit_array,\
-    cur_window_size, max_fi_size):
+    cur_window_size, max_fi_size, cur_support, document_id):
 
     frequents[frequent_size] = []
 
     if frequent_size == 1:
         for doc_id in bit_array.keys():
-            if bit_array[doc_id].count() >= support * cur_window_size:
+            if bit_array[doc_id].count() >= cur_support * cur_window_size:
                 frequents[frequent_size].append(doc_id)
     else:
         # import pdb; pdb.set_trace()
@@ -283,20 +330,22 @@ def recursive_generate_fis(frequent_size, prev_frequents, bit_array,\
         else:
             prev_freq_split = set([item for sublist in prev_frequents for item in sublist])
         item_combinations = list(combinations(prev_freq_split, frequent_size))
+        if document_id != 0:
+            item_combinations = [i for i in item_combinations if document_id in i]
         for itemset in item_combinations:
             for item in enumerate(itemset):
                 if item[0] == 0:
                     bit_vector = bit_array[item[1]]
                 else:
                     bit_vector = bit_vector & bit_array[item[1]]
-            if bit_vector.count() >= support * cur_window_size:
+            if bit_vector.count() >= cur_support * cur_window_size:
                 frequents[frequent_size].append(itemset)
 
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
         # import pdb; pdb.set_trace()
         recursive_generate_fis(frequent_size+1, frequents[frequent_size], bit_array, \
-            cur_window_size, max_fi_size)
+            cur_window_size, max_fi_size, cur_support, document_id)
 
 def debug_array(user_id, document_id, target_user):
     print ""
@@ -325,30 +374,31 @@ def print_progress(timestamp):
         len(bit_array), "Row timestamp:", row_datetime, "Users", len(users_dict)
 
 def process_stream_file(stream_sorted, selected_product_id):
-    global num_transactions, start_t, stop_t, next_generate_fis, do_recommendation
+    global num_transactions, start_t, stop_t, next_generate_fis
     start_t = stop_t = dt.now()
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
-            # import pdb; pdb.set_trace()
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            # if max_transactions > 0 and num_transactions > max_transactions: 
-            #     break
-
+            # if num_transactions == 794668:
+            #     import pdb; pdb.set_trace()
             slide_window(window_size, int(document_id), int(user_id), timestamp)
 
             if num_transactions % 1000 == 0:
                 print_progress(timestamp)
-            # if num_transactions % 10000 == 0 and window_full:
-            #     generate_fis(1, [], bit_array, max_fi_size)
             if window_full and next_generate_fis == None:
                 next_generate_fis = next_round_datetime(cur_datetime, generate_fis_interval)
             if window_full and cur_datetime >= next_generate_fis:
-                do_recommendation = True
                 print_progress(timestamp)
-                generate_fis(1, [], bit_array, max_fi_size, next_generate_fis)
+                if support == 0:
+                    generate_fis(1, [], bit_array, max_fi_size, next_generate_fis, 
+                        int(document_id))
+                else:
+                    generate_fis(1, [], bit_array, max_fi_size, next_generate_fis, 0)
                 fis_analize()
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
+                recommend(int(document_id))
+
             # debug_array(user_id, document_id, target_user)
 
 def fis_analize():
@@ -421,12 +471,6 @@ def main():
         print "Stream sorted in:", execution_time 
 
         process_stream_file(stream_sorted, selected_product_id)
-
-        if max_files > 0 and num_transactions > max_files:
-            if max_files == 1:
-                generate_fis(1, [], bit_array, max_fi_size, None)
-                fis_analize()
-            break
 
         f.close()
 
