@@ -239,19 +239,16 @@ def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size,
     timestamp_generate_fis, document_id):
     global window_id
     print 
-    print "1:", dt.now()
 
     cur_window_size = len(users_dict)
     if remove_bounce_users:
-        print "2:", dt.now()
+
+        print "Removing bounce users..."
+
         bit_array = {k:v.copy() for k, v in bit_array.items()}
-        print "3:", dt.now()
         bounce_users = [user_index for user_index, v in enumerate(pages_users) if len(v)==1]
-        print "4:", dt.now()
         for user_index in bounce_users:
             zero_column(user_index, bit_array)
-
-        print "5:", dt.now()
 
         print "Window size:", cur_window_size
         cur_window_size -= len(bounce_users)
@@ -264,7 +261,6 @@ def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size,
     elif document_id in bit_array:
         print "document_id:", document_id
         # import pdb; pdb.set_trace()
-
 
         upper_bound = bit_array[document_id].count()
         lower_bound = 1
@@ -284,6 +280,7 @@ def generate_fis(frequent_size, prev_frequents, bit_array, max_fi_size,
                 lower_bound = support_count + 1
             elif len(frequents[2]) < 5:
                 upper_bound = support_count
+
     else:
         print "document_id:", document_id, "not found"
         return
