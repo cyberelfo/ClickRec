@@ -447,7 +447,9 @@ def main():
 
     file_list = get_files(local_file)
 
-    for filename in file_list:
+    for num_file, filename in enumerate(file_list):
+        if num_file >= max_files:
+            break
         print ""
         print "Reading stream file "+ filename + "..."
 

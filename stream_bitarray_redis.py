@@ -3,16 +3,15 @@
 
 import csv
 from itertools import combinations
-from pprint import pprint
 import argparse
 import ConfigParser
 from datetime import datetime as dt
 from datetime import timedelta
-import requests
 import glob
 import MySQLdb
 import solr
 import redis
+from bitarray import bitarray
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -95,13 +94,13 @@ def sort_by_column(csv_cont, col_index, reverse=False):
 def user_visit_document(user_index, document_id):
     pages_users[user_index].add(document_id)
 
-    pipe1.setbit(document_id, user_index, 1)
+    pipe1.setbit("DOCID:"+document_id, user_index, 1)
 
 def zero_column(user_index):
     for doc_id in pages_users[user_index]:
-        pipe1.setbit(doc_id, user_index, 0)
-        if pipe1.bitcount(doc_id) == 0:
-            pipe1.delete(doc_id)
+        pipe1.setbit("DOCID:"+doc_id, user_index, 0)
+        if pipe1.bitcount("DOCID:"+doc_id) == 0:
+            pipe1.delete("DOCID:"+doc_id)
 
 def replace_user(user_id, timestamp):
     global target_user
@@ -180,40 +179,31 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     global window_id
     print 
 
-    r_no_bounce = redis.StrictRedis(host='localhost', port=6379, db=1)
-    r_no_bounce.flushdb()
-    pipe = r_no_bounce.pipeline()
-
     cur_window_size = len(users_dict)
-    if remove_bounce_users:
 
-        print "Removing bounce users from Redis..."
+    lua = """
+    local matches = redis.call('KEYS', 'DOCID:*')
 
-        bounce_users_count = 0
-        for user_index, v in enumerate(pages_users):
-            if len(v) > 1:
-                for doc_id in v:
-                    pipe.setbit(doc_id, user_index, 1)
-            else:
-                bounce_users_count += 1
-                if bounce_users_count % 1000 == 0:
-                    pipe.execute()
+    redis.call('DEL', 'DOC_COUNTS')
 
-        pipe.execute()
+    for _,key in ipairs(matches) do
+        local val = redis.call('BITCOUNT', key)
+        redis.call('ZADD', 'DOC_COUNTS', tonumber(val), key)
+    end
+    """
 
-        print "Window size:", cur_window_size
-        cur_window_size -= bounce_users_count
-        print "Deleted transactions:", bounce_users_count, "Window size:", cur_window_size
+    count_pages = r.register_script(lua)
+    count_pages()
 
     if document_id == 0:
         cur_support = support
-        recursive_generate_fis(frequent_size, prev_frequents, r_no_bounce, 
+        recursive_generate_fis(frequent_size, prev_frequents, 
             cur_window_size, max_fi_size, cur_support, document_id)
-    elif r_no_bounce.exists(document_id):
+    elif r.exists("DOCID:"+document_id):
         print "document_id:", document_id
         # import pdb; pdb.set_trace()
 
-        upper_bound = r_no_bounce.bitcount(document_id)
+        upper_bound = r.bitcount("DOCID:"+document_id)
         lower_bound = 1
         while True:
             if upper_bound == lower_bound:
@@ -222,7 +212,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
             support_count = (upper_bound + lower_bound) / 2
             print "Support Count:", support_count
             cur_support = float(support_count) / float(cur_window_size)
-            recursive_generate_fis(frequent_size, prev_frequents, r_no_bounce, 
+            recursive_generate_fis(frequent_size, prev_frequents, 
                 cur_window_size, max_fi_size, cur_support, document_id)
             print "Size:", len(frequents[2])
             if len(frequents[2]) >= 5 and len(frequents[2]) <= 10:
@@ -236,7 +226,8 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
         print "document_id:", document_id, "not found"
         return
 
-    r_no_bounce.flushdb()
+
+    # import pdb; pdb.set_trace()
 
     # Print all frequents
     timestamp_start_pos = window_timestamp[(target_user)%len(users_dict)]
@@ -262,7 +253,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     # import pdb; pdb.set_trace()
 
 
-def recursive_generate_fis(frequent_size, prev_frequents, r_no_bounce,\
+def recursive_generate_fis(frequent_size, prev_frequents,
     cur_window_size, max_fi_size, cur_support, document_id):
 
     frequents[frequent_size] = []
@@ -270,11 +261,15 @@ def recursive_generate_fis(frequent_size, prev_frequents, r_no_bounce,\
     # import pdb; pdb.set_trace()
 
     if frequent_size == 1:
-        for doc_id in r_no_bounce.keys("*"):
-            if r_no_bounce.bitcount(doc_id) >= cur_support * cur_window_size:
-                frequents[frequent_size].append(int(doc_id))
+        print "Before range"
+        list_frequent = r.zrangebyscore("DOC_COUNTS", cur_support * cur_window_size, cur_window_size)
+
+        print "After range"
+        for doc_id in list_frequent:
+            frequents[frequent_size].append(doc_id[6:])
+
     else:
-        # import pdb; pdb.set_trace()
+        print "Before size 2"
         if frequent_size == 2:
             prev_freq_split = prev_frequents
         else:
@@ -282,20 +277,21 @@ def recursive_generate_fis(frequent_size, prev_frequents, r_no_bounce,\
         item_combinations = list(combinations(prev_freq_split, frequent_size))
         if document_id != 0:
             item_combinations = [i for i in item_combinations if document_id in i]
+        print "Combinations:", len(item_combinations)
         for itemset in item_combinations:
             for item in enumerate(itemset):
                 if item[0] == 0:
-                    bit_vector = r_no_bounce.get(item[1])
-                    r_no_bounce.set('bit_vector', bit_vector)
+                    bit_vector = r.get("DOCID:"+item[1])
+                    r.set('bit_vector', bit_vector)
                 else:
-                    r_no_bounce.bitop('AND', 'bit_vector', 'bit_vector', item[1])
-            if r_no_bounce.bitcount('bit_vector') >= cur_support * cur_window_size:
+                    r.bitop('AND', 'bit_vector', 'bit_vector', "DOCID:"+item[1])
+            if r.bitcount('bit_vector') >= cur_support * cur_window_size:
                 frequents[frequent_size].append(itemset)
-        r_no_bounce.delete('bit_vector')
+        r.delete('bit_vector')
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
         # import pdb; pdb.set_trace()
-        recursive_generate_fis(frequent_size+1, frequents[frequent_size], r_no_bounce, \
+        recursive_generate_fis(frequent_size+1, frequents[frequent_size],
             cur_window_size, max_fi_size, cur_support, document_id)
 
 def calculate_interval():
@@ -325,9 +321,7 @@ def process_stream_file(stream_sorted, selected_product_id):
         if product_id == selected_product_id:
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            # if num_transactions == 794668:
-            #     import pdb; pdb.set_trace()
-            slide_window(window_size, int(document_id), int(user_id), timestamp)
+            slide_window(window_size, document_id, int(user_id), timestamp)
 
             if num_transactions % 1000 == 0:
                 pipe1.execute()
@@ -339,14 +333,12 @@ def process_stream_file(stream_sorted, selected_product_id):
                 print_progress(timestamp)
                 if support == 0:
                     generate_fis(1, [], max_fi_size, next_generate_fis, 
-                        int(document_id))
+                        document_id)
                 else:
                     generate_fis(1, [], max_fi_size, next_generate_fis, 0)
-                fis_analize()
+                # fis_analize()
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
-                recommend(int(document_id))
-
-            # debug_array(user_id, document_id, target_user)
+                recommend(document_id)
 
 def fis_analize():
     frequents_size_2 = set()
@@ -394,7 +386,9 @@ def main():
 
     file_list = get_files(local_file)
 
-    for filename in file_list:
+    for num_file, filename in enumerate(file_list):
+        if num_file >= max_files:
+            break
         print ""
         print "Reading stream file "+ filename + "..."
 
