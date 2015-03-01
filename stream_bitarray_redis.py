@@ -147,6 +147,15 @@ def recommend(document_id):
             # import pdb; pdb.set_trace()
             item = set(itemset) - set([document_id])
             recommendations = recommendations.union(item)
+
+    # import pdb; pdb.set_trace()
+
+    for docid in topten:
+        if len(recommendations) >= 10:
+            break
+        if docid != document_id:
+            recommendations = recommendations.union([docid])
+
     print "Document:", document_id
     print "Recommendations:", recommendations
     print
@@ -176,7 +185,7 @@ def get_url_solr(document_id):
 
 def generate_fis(frequent_size, prev_frequents, max_fi_size, 
     timestamp_generate_fis, document_id):
-    global window_id
+    global window_id, topten
     print 
 
     cur_window_size = len(users_dict)
@@ -190,10 +199,12 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
         local val = redis.call('BITCOUNT', key)
         redis.call('ZADD', 'DOC_COUNTS', tonumber(val), key)
     end
-    """
+    """    
 
     count_pages = r.register_script(lua)
     count_pages()
+
+    topten = [i[6:] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
 
     if document_id == 0:
         cur_support = support
@@ -212,6 +223,8 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
             support_count = (upper_bound + lower_bound) / 2
             print "Support Count:", support_count
             cur_support = float(support_count) / float(cur_window_size)
+            if support_count == 1:
+                break
             recursive_generate_fis(frequent_size, prev_frequents, 
                 cur_window_size, max_fi_size, cur_support, document_id)
             print "Size:", len(frequents[2])
@@ -266,15 +279,22 @@ def recursive_generate_fis(frequent_size, prev_frequents,
 
         print "After range"
         for doc_id in list_frequent:
-            frequents[frequent_size].append(doc_id[6:])
+            frequents[frequent_size].append(frozenset([doc_id[6:]]))
+            # frequents[frequent_size].append(doc_id[6:])
 
     else:
         print "Before size 2"
-        if frequent_size == 2:
-            prev_freq_split = prev_frequents
-        else:
-            prev_freq_split = set([item for sublist in prev_frequents for item in sublist])
-        item_combinations = list(combinations(prev_freq_split, frequent_size))
+        item_combinations = set([i.union(j) for i in frequents[frequent_size-1] 
+                                            for j in frequents[frequent_size-1] 
+                                            if len(i.union(j)) == frequent_size
+                                            and i != j])
+        # item_combinations = list(set(item_combinations))
+        # import pdb; pdb.set_trace()
+        # if frequent_size == 2:
+        #     prev_freq_split = prev_frequents
+        # else:
+        #     prev_freq_split = set([item for sublist in prev_frequents for item in sublist])
+        # item_combinations = list(combinations(prev_freq_split, frequent_size))
         if document_id != 0:
             item_combinations = [i for i in item_combinations if document_id in i]
         print "Combinations:", len(item_combinations)
@@ -290,7 +310,6 @@ def recursive_generate_fis(frequent_size, prev_frequents,
         r.delete('bit_vector')
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
-        # import pdb; pdb.set_trace()
         recursive_generate_fis(frequent_size+1, frequents[frequent_size],
             cur_window_size, max_fi_size, cur_support, document_id)
 
