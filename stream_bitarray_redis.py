@@ -12,6 +12,8 @@ import MySQLdb
 import solr
 import redis
 from bitarray import bitarray
+import requests
+from progress.bar import Bar
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -30,6 +32,8 @@ generate_fis_interval = config.getint('main', 'generate_fis_interval')
 hadoop_server = config.get('hadoop', 'hadoop_server')
 hadoop_port = config.get('hadoop', 'hadoop_port')
 hadoop_path = config.get('hadoop', 'hadoop_path')
+
+brainiak_server = config.get('brainiak', 'brainiak_server')
 
 parser = argparse.ArgumentParser()
 
@@ -99,8 +103,6 @@ def user_visit_document(user_index, document_id):
 def zero_column(user_index):
     for doc_id in pages_users[user_index]:
         pipe1.setbit("DOCID:"+doc_id, user_index, 0)
-        if pipe1.bitcount("DOCID:"+doc_id) == 0:
-            pipe1.delete("DOCID:"+doc_id)
 
 def replace_user(user_id, timestamp):
     global target_user
@@ -120,7 +122,9 @@ def replace_user(user_id, timestamp):
         del users_dict[removed_user]
     except KeyError:
         removed_user = None
-    zero_column(target_user)
+
+    if window_full:
+        zero_column(target_user)
 
     users[target_user] = user_id
     pages_users[target_user] = set()
@@ -164,31 +168,64 @@ def recommend(document_id):
 
 def get_url_solr(document_id):
     global s
-    response = s.query('documentId:'+str(document_id), fl="url")
-    if response.numFound == 1:
-        url = response.results[0]['url']
-        title = response.results[0]['title']
-        publish_date = response.results[0]['issued']
-        modify_date = response.results[0]['modified']
-        section = response.results[0]['section'][0]
+
+    if r.exists("SOLR:"+document_id):
+        url  = r.get("SOLR:"+document_id)
+    else:
+        response = s.query('documentId:'+str(document_id), fields='url')
 
         # import pdb; pdb.set_trace()
+        if response.numFound == 1:
+            url = response.results[0]['url']
+            # publisher = response.results[0]['publisher']
+        else:
+            url = None
 
-        # body = response.results[0]['body']
-        body = ""
-        publisher = response.results[0]['publisher']
-        # print result[0], "-", url
-    else:
-        url = None
+        r.set("SOLR:"+document_id, url)
+
     return url
 
+def annotations_to_redis():
+    print
+    print "Saving annotations to Redis"
+    total_docs = r.zcard('DOC_COUNTS')
+    miss = 0
+    bar = Bar('Progress', max=total_docs)
+    for k in r.zrevrange('DOC_COUNTS', 0, -1):
+        document_id = k[6:]
+        if not r.exists("ANNO:"+document_id):
 
-def generate_fis(frequent_size, prev_frequents, max_fi_size, 
-    timestamp_generate_fis, document_id):
-    global window_id, topten
-    print 
+            miss += 1
 
-    cur_window_size = len(users_dict)
+            annotations = get_annotations(document_id)
+
+            r.rpush("ANNO:"+document_id, '0')
+            for i in annotations:
+                r.rpush("ANNO:"+document_id, i)
+
+        bar.next()
+    bar.finish()
+    print "Miss:", miss
+
+def get_annotations(document_id):
+
+    permalink = get_url_solr(document_id)
+
+    url = "http://" + brainiak_server + ":" \
+          + "/_query/annotation_from_permalink/_result"
+
+    response = requests.get(url, params={'permalink':permalink})
+
+    json = response.json()
+
+    annotations = []
+    if response.ok:
+        for j in json['items']:
+            annotations.append(j['label'])
+
+    return annotations
+
+def count_and_delete_pages():
 
     lua = """
     local matches = redis.call('KEYS', 'DOCID:*')
@@ -197,12 +234,24 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
 
     for _,key in ipairs(matches) do
         local val = redis.call('BITCOUNT', key)
-        redis.call('ZADD', 'DOC_COUNTS', tonumber(val), key)
+        if val == 0 then
+            redis.call('DEL', key)
+        else
+            redis.call('ZADD', 'DOC_COUNTS', tonumber(val), key)
+        end
     end
     """    
 
     count_pages = r.register_script(lua)
     count_pages()
+    
+
+def generate_fis(frequent_size, prev_frequents, max_fi_size, 
+    timestamp_generate_fis, document_id):
+    global window_id, topten
+    print 
+
+    cur_window_size = len(users_dict)
 
     topten = [i[6:] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
 
@@ -280,7 +329,6 @@ def recursive_generate_fis(frequent_size, prev_frequents,
         print "After range"
         for doc_id in list_frequent:
             frequents[frequent_size].append(frozenset([doc_id[6:]]))
-            # frequents[frequent_size].append(doc_id[6:])
 
     else:
         print "Before size 2"
@@ -288,13 +336,6 @@ def recursive_generate_fis(frequent_size, prev_frequents,
                                             for j in frequents[frequent_size-1] 
                                             if len(i.union(j)) == frequent_size
                                             and i != j])
-        # item_combinations = list(set(item_combinations))
-        # import pdb; pdb.set_trace()
-        # if frequent_size == 2:
-        #     prev_freq_split = prev_frequents
-        # else:
-        #     prev_freq_split = set([item for sublist in prev_frequents for item in sublist])
-        # item_combinations = list(combinations(prev_freq_split, frequent_size))
         if document_id != 0:
             item_combinations = [i for i in item_combinations if document_id in i]
         print "Combinations:", len(item_combinations)
@@ -341,7 +382,6 @@ def process_stream_file(stream_sorted, selected_product_id):
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
             slide_window(window_size, document_id, int(user_id), timestamp)
-
             if num_transactions % 1000 == 0:
                 pipe1.execute()
                 print_progress(timestamp)
@@ -350,6 +390,10 @@ def process_stream_file(stream_sorted, selected_product_id):
             if window_full and cur_datetime >= next_generate_fis:
                 pipe1.execute()
                 print_progress(timestamp)
+
+                count_and_delete_pages()
+                annotations_to_redis()
+
                 if support == 0:
                     generate_fis(1, [], max_fi_size, next_generate_fis, 
                         document_id)
@@ -358,6 +402,9 @@ def process_stream_file(stream_sorted, selected_product_id):
                 # fis_analize()
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
                 recommend(document_id)
+                
+                # import pdb; pdb.set_trace()
+
 
 def fis_analize():
     frequents_size_2 = set()
@@ -430,8 +477,6 @@ def main():
         process_stream_file(stream_sorted, selected_product_id)
 
         f.close()
-
-    r.flushdb()
 
     stop = dt.now()
     execution_time = stop - start 
