@@ -54,6 +54,7 @@ max_files = args.max_files
 users = [0] * window_size
 users_dict = {}
 pages_users = [set() for i in range(window_size)]
+annotations_users = [set() for i in range(window_size)]
 frequents = {}
 num_transactions = 0
 start_t = stop_t = 0
@@ -61,14 +62,6 @@ window_timestamp = [0] * window_size
 support = args.support / 100.0
 next_generate_fis = None
 window_id = 0
-
-# def window_id_generator():
-#     window_id = 0
-#     while True:
-#         yield window_id
-#         window_id += 1
-# 
-# window_id_gen = window_id_generator()
 
 def next_round_datetime(cur_datetime, interval):
     #how many secs have passed this hour
@@ -95,27 +88,23 @@ def sort_by_column(csv_cont, col_index, reverse=False):
            reverse=reverse)
     return body
 
-def user_visit_document(user_index, document_id):
+def user_visit_document(user_index, document_id, annotations):
     pages_users[user_index].add(document_id)
-
     pipe1.setbit("DOCID:"+document_id, user_index, 1)
+
+    annotations_users[user_index] |= set(annotations)
+    for uri in annotations:
+        pipe1.setbit("URI:"+uri, user_index, 1)
 
 def zero_column(user_index):
     for doc_id in pages_users[user_index]:
         pipe1.setbit("DOCID:"+doc_id, user_index, 0)
 
+    for uri in annotations_users[user_index]:
+        pipe1.setbit("URI:"+uri, user_index, 1)
+
 def replace_user(user_id, timestamp):
     global target_user
-
-    if keep_heavy_users:
-        candidate_1_index = target_user
-        candidate_2_index = (target_user + 1) % window_size
-
-        candidate_1_count = len(pages_users[candidate_1_index])
-        candidate_2_count = len(pages_users[candidate_2_index])
-
-        if candidate_1_count > candidate_2_count:
-            target_user = candidate_2_index
 
     removed_user = users[target_user]
     try:
@@ -128,12 +117,13 @@ def replace_user(user_id, timestamp):
 
     users[target_user] = user_id
     pages_users[target_user] = set()
+    annotations_users[target_user] = set()
     users_dict[user_id] = target_user
     window_timestamp[target_user] = timestamp
     target_user = (target_user + 1) % window_size
     return removed_user
 
-def slide_window(size, document_id, user_id, timestamp):
+def slide_window(size, document_id, user_id, timestamp, annotations):
     global window_full
 
     if user_id not in users_dict:
@@ -142,7 +132,7 @@ def slide_window(size, document_id, user_id, timestamp):
         window_full = len(users_dict) == window_size
 
     user_index = users_dict[user_id]
-    user_visit_document(user_index, document_id)
+    user_visit_document(user_index, document_id, annotations)
 
 def recommend(document_id):
     recommendations = set()
@@ -185,27 +175,26 @@ def get_url_solr(document_id):
 
     return url
 
-def annotations_to_redis():
-    print
-    print "Saving annotations to Redis"
-    total_docs = r.zcard('DOC_COUNTS')
-    miss = 0
-    bar = Bar('Progress', max=total_docs)
-    for k in r.zrevrange('DOC_COUNTS', 0, -1):
-        document_id = k[6:]
-        if not r.exists("ANNO:"+document_id):
 
-            miss += 1
+def annotations_to_redis(document_id):
 
-            annotations = get_annotations(document_id)
+    annotation_found = r.exists("ANNO:"+document_id)
+    if annotation_found:
+        annotations = r.lrange("ANNO:"+document_id, 0, -1)
 
-            r.rpush("ANNO:"+document_id, '0')
-            for i in annotations:
-                r.rpush("ANNO:"+document_id, i)
+    else:
+        response = s.query('documentId:'+str(document_id), fields='entity')
 
-        bar.next()
-    bar.finish()
-    print "Miss:", miss
+        annotations = ['0']
+        if response.numFound == 1:
+            if 'entity' in response.results[0]:
+                annotations = response.results[0]['entity']
+
+        # if annotations == ['0']:
+        #     print "ANNO:"+document_id
+        r.rpush("ANNO:"+document_id, *annotations)
+
+    return annotations
 
 def get_annotations(document_id):
 
@@ -245,37 +234,70 @@ def count_and_delete_pages():
     count_pages = r.register_script(lua)
     count_pages()
     
+def count_and_delete_uris():
+
+    lua = """
+    local matches = redis.call('KEYS', 'URI:*')
+
+    redis.call('DEL', 'URI_COUNTS')
+
+    for _,key in ipairs(matches) do
+        local val = redis.call('BITCOUNT', key)
+        if val == 0 then
+            redis.call('DEL', key)
+        else
+            redis.call('ZADD', 'URI_COUNTS', tonumber(val), key)
+        end
+    end
+    """    
+
+    count_uris = r.register_script(lua)
+    count_uris()
 
 def generate_fis(frequent_size, prev_frequents, max_fi_size, 
-    timestamp_generate_fis, document_id):
+    timestamp_generate_fis, document_id, pages_or_uris):
     global window_id, topten
     print 
 
+    print pages_or_uris
+    print 
+
+    if pages_or_uris == 'pages':
+        keys_prefix = 'DOCID:'
+        counts_prefix = 'DOC_COUNTS'
+    else:
+        keys_prefix = 'URI:'
+        counts_prefix = 'URI_COUNTS'
+
+    len_prefix = len(keys_prefix)
+
     cur_window_size = len(users_dict)
 
-    topten = [i[6:] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
+    topten = [i[len_prefix:] for i in r.zrevrange(counts_prefix, 0, 9)]
 
     if document_id == 0:
         cur_support = support
         recursive_generate_fis(frequent_size, prev_frequents, 
-            cur_window_size, max_fi_size, cur_support, document_id)
-    elif r.exists("DOCID:"+document_id):
+            cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris)
+    elif r.exists(keys_prefix+document_id):
         print "document_id:", document_id
         # import pdb; pdb.set_trace()
 
-        upper_bound = r.bitcount("DOCID:"+document_id)
+        upper_bound = r.bitcount(keys_prefix+document_id)
         lower_bound = 1
         while True:
             if upper_bound == lower_bound:
                 cur_support = 0
                 break
             support_count = (upper_bound + lower_bound) / 2
+            if support_count <= 1:
+                break
             print "Support Count:", support_count
             cur_support = float(support_count) / float(cur_window_size)
             if support_count == 1:
                 break
             recursive_generate_fis(frequent_size, prev_frequents, 
-                cur_window_size, max_fi_size, cur_support, document_id)
+                cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris)
             print "Size:", len(frequents[2])
             if len(frequents[2]) >= 5 and len(frequents[2]) <= 10:
                 break
@@ -299,7 +321,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
             print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
                 "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
             print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
-            print frequent_size, itemsets
+            # print frequent_size, itemsets
             print "Total itemsets:", len(itemsets)
             print
 
@@ -316,22 +338,26 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
 
 
 def recursive_generate_fis(frequent_size, prev_frequents,
-    cur_window_size, max_fi_size, cur_support, document_id):
+    cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris):
 
     frequents[frequent_size] = []
 
-    # import pdb; pdb.set_trace()
+    if pages_or_uris == 'pages':
+        keys_prefix = 'DOCID:'
+        counts_prefix = 'DOC_COUNTS'
+    else:
+        keys_prefix = 'URI:'
+        counts_prefix = 'URI_COUNTS'
+
+    len_prefix = len(keys_prefix)
 
     if frequent_size == 1:
-        print "Before range"
-        list_frequent = r.zrangebyscore("DOC_COUNTS", cur_support * cur_window_size, cur_window_size)
+        list_frequent = r.zrangebyscore(counts_prefix, cur_support * cur_window_size, cur_window_size)
 
-        print "After range"
         for doc_id in list_frequent:
-            frequents[frequent_size].append(frozenset([doc_id[6:]]))
+            frequents[frequent_size].append(frozenset([doc_id[len_prefix:]]))
 
     else:
-        print "Before size 2"
         item_combinations = set([i.union(j) for i in frequents[frequent_size-1] 
                                             for j in frequents[frequent_size-1] 
                                             if len(i.union(j)) == frequent_size
@@ -342,17 +368,17 @@ def recursive_generate_fis(frequent_size, prev_frequents,
         for itemset in item_combinations:
             for item in enumerate(itemset):
                 if item[0] == 0:
-                    bit_vector = r.get("DOCID:"+item[1])
+                    bit_vector = r.get(keys_prefix+item[1])
                     r.set('bit_vector', bit_vector)
                 else:
-                    r.bitop('AND', 'bit_vector', 'bit_vector', "DOCID:"+item[1])
+                    r.bitop('AND', 'bit_vector', 'bit_vector', keys_prefix+item[1])
             if r.bitcount('bit_vector') >= cur_support * cur_window_size:
                 frequents[frequent_size].append(itemset)
         r.delete('bit_vector')
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
         recursive_generate_fis(frequent_size+1, frequents[frequent_size],
-            cur_window_size, max_fi_size, cur_support, document_id)
+            cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris)
 
 def calculate_interval():
     global start_t, stop_t
@@ -361,7 +387,7 @@ def calculate_interval():
     start_t = stop_t
     return execution_time
 
-def print_progress(timestamp):
+def print_progress(timestamp, miss):
     row_datetime = dt.fromtimestamp(int(timestamp[:10]))
     execution_time = calculate_interval()
     if window_full:
@@ -372,33 +398,38 @@ def print_progress(timestamp):
     print num_transactions, "- Execution time:", \
         execution_time, \
         "Window size:", cur_window_size, "Pages:", \
-        "0", "Row timestamp:", row_datetime, "Users", len(users_dict)
+        "0", "Row timestamp:", row_datetime, "Miss:", miss
 
 def process_stream_file(stream_sorted, selected_product_id):
     global num_transactions, start_t, stop_t, next_generate_fis
     start_t = stop_t = dt.now()
+    miss = 0
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            slide_window(window_size, document_id, int(user_id), timestamp)
+            annotations = annotations_to_redis(document_id)
+            slide_window(window_size, document_id, int(user_id), timestamp, annotations)
             if num_transactions % 1000 == 0:
                 pipe1.execute()
-                print_progress(timestamp)
+                print_progress(timestamp, miss)
+                miss = 0
             if window_full and next_generate_fis == None:
                 next_generate_fis = next_round_datetime(cur_datetime, generate_fis_interval)
             if window_full and cur_datetime >= next_generate_fis:
                 pipe1.execute()
-                print_progress(timestamp)
+                print_progress(timestamp, miss)
+                miss = 0
 
                 count_and_delete_pages()
-                annotations_to_redis()
+                count_and_delete_uris()
 
                 if support == 0:
                     generate_fis(1, [], max_fi_size, next_generate_fis, 
-                        document_id)
+                        document_id, 'pages')
                 else:
-                    generate_fis(1, [], max_fi_size, next_generate_fis, 0)
+                    # generate_fis(1, [], max_fi_size, next_generate_fis, 0, 'pages')
+                    generate_fis(1, [], max_fi_size, next_generate_fis, 0, 'uris')
                 # fis_analize()
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
                 recommend(document_id)
@@ -424,22 +455,53 @@ def get_files(local_file):
     file_list.sort()
     return file_list
 
+def clean_redis():
+
+    # lua = "redis.call('del', unpack(redis.call('keys', 'DOCID:*')))"
+
+    lua = """
+    local matches = redis.call('KEYS', 'DOCID:*')
+
+    redis.call('DEL', 'DOC_COUNTS')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'URI:*')
+
+    redis.call('DEL', 'URI_COUNTS')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+    """    
+
+    delete_redis = r.register_script(lua)
+
+    delete_redis()
+
+
 def main():
     global cursor, db, execution_id, s, r, pipe1
     print "Program start..."
 
     start = dt.now()
 
-    db = MySQLdb.connect("localhost","root","","stream" )
-    cursor = db.cursor()
-
     s = solr.SolrConnection(solr_endpoint)
 
     r = redis.StrictRedis(host='localhost', port=6379, db=0)
-    r.flushdb()
+
+    print "Clean Redis..."
+    clean_redis()
+
     pipe1 = r.pipeline()
 
     if save_results:
+
+        db = MySQLdb.connect("localhost","root","","stream" )
+        cursor = db.cursor()
+
         cursor.execute(""" insert into bitstream_execution 
             (date_execution, product_id, window_size, support, keep_heavy_users, \
                 remove_bounce_users, max_fi_size
