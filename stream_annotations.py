@@ -51,7 +51,7 @@ def clean_redis():
     for _,key in ipairs(matches) do
         redis.call('DEL', key)
     end
-    """    
+    """
 
     delete_annotations = r.register_script(lua)
 
@@ -77,7 +77,6 @@ def process_stream_file(stream, selected_product_id):
                 # import pdb; pdb.set_trace()
 
 def annotations_to_redis(document_id):
-    total_docs = r.zcard('DOC_COUNTS')
     annotation_found = r.exists("ANNO:"+document_id)
     if not annotation_found:
         response = s.query('documentId:'+str(document_id), fields='entity')
@@ -101,6 +100,42 @@ def get_files(local_file):
         file_list = None
     file_list.sort()
     return file_list
+
+def doc_annotation_count():
+
+
+    lua = """
+    local sum = 0
+    local matches = redis.call('KEYS', 'ANNO:*')
+
+    for _,key in ipairs(matches) do
+        local val = redis.call('LRANGE', key, 0, 0)
+        if val[1] == '0' then
+            redis.call('DEL', key)
+            sum = sum + 1
+        end
+    end
+
+    return sum
+    """
+    del_annotations = r.register_script(lua)
+
+    del_annotations()
+
+    lua = """
+    local matches = redis.call('KEYS', 'ANNO:*')
+
+    redis.call('DEL', 'ANNO_COUNTS')
+
+    for _,key in ipairs(matches) do
+        local val = redis.call('LLEN', key)
+        redis.call('HINCRBY', 'ANNO_COUNTS', val, 1)
+    end
+    """
+
+    count_annotations = r.register_script(lua)
+
+    count_annotations()
 
 
 def main():
@@ -136,6 +171,10 @@ def main():
         process_stream_file(stream_sorted, selected_product_id)
 
         f.close()
+
+
+    doc_annotation_count()
+
 
     stop = dt.now()
     execution_time = stop - start 

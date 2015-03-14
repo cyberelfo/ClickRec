@@ -30,8 +30,6 @@ nome_tabela = "stream_g1"
 # Techtudo = 6
 # Música = 7
 
-produto = 1
-
 # transactions_list = []
 
 def to_transaction(linhas):

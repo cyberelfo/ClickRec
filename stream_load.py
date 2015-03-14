@@ -24,7 +24,7 @@ def file_len(fname):
 	
 def load_stream():
 	print "Delete table..."
-	cursor.execute(""" delete from stream_g1 where filename = %s ;""", [filename] )
+	cursor.execute(""" delete from stream where filename = %s ;""", [filename] )
 
 	total_lines = file_len(path+filename)
 
@@ -42,7 +42,7 @@ def load_stream():
 	for row in reader:
 		bar.next()
 		# Select only pageviews from product 1 (G1)
-		if row[0] == "1":			
+		if row[0] != "0":			
 			if (row[2], row[4]) in doc_user:
 				# Ignore duplicate user+document 
 				pass
@@ -56,7 +56,7 @@ def load_stream():
 
 
 		if i % 1000 == 0:
-			cursor.executemany(""" insert into stream_g1
+			cursor.executemany(""" insert into stream
 				(product_id, type, document_id, provider_id, user_id, 
 					timestamp, stream_datetime, filename)
 				values(%s, %s, %s, %s, %s, %s, %s, %s ) ;
@@ -65,7 +65,7 @@ def load_stream():
 			results = []
 
 	if len(results) > 0:
-		cursor.executemany(""" insert into stream_g1
+		cursor.executemany(""" insert into stream
 			(product_id, type, document_id, provider_id, user_id, 
 				timestamp, stream_datetime, filename)
 			values(%s, %s, %s, %s, %s, %s, %s, %s ) ;

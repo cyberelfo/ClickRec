@@ -134,7 +134,7 @@ def slide_window(size, document_id, user_id, timestamp, annotations):
     user_index = users_dict[user_id]
     user_visit_document(user_index, document_id, annotations)
 
-def recommend(document_id):
+def recommend_by_pages(document_id):
     recommendations = set()
     for itemset in frequents[2]:
         if document_id in itemset:
@@ -156,6 +156,24 @@ def recommend(document_id):
 
     # import pdb; pdb.set_trace()
 
+def recommend_by_uris(document_id):
+    recommendations = set()
+
+    print "Document:", document_id
+    miss, annotations = get_annotations(document_id)
+    if annotations == ['0']:
+        return None
+
+    annotations_combinations = [set(i) for i in combinations(annotations, 2)]
+
+    print "annotations:", annotations
+    for annotation in annotations_combinations:
+        print "annotation:", annotation
+        if annotation in frequents[2]:
+            # import pdb; pdb.set_trace()
+            print "Frequent!"
+
+
 def get_url_solr(document_id):
     global s
 
@@ -176,11 +194,12 @@ def get_url_solr(document_id):
     return url
 
 
-def annotations_to_redis(document_id):
+def get_annotations(document_id):
 
     annotation_found = r.exists("ANNO:"+document_id)
     if annotation_found:
         annotations = r.lrange("ANNO:"+document_id, 0, -1)
+        miss = 0
 
     else:
         response = s.query('documentId:'+str(document_id), fields='entity')
@@ -193,10 +212,11 @@ def annotations_to_redis(document_id):
         # if annotations == ['0']:
         #     print "ANNO:"+document_id
         r.rpush("ANNO:"+document_id, *annotations)
+        miss = 1
 
-    return annotations
+    return miss, annotations
 
-def get_annotations(document_id):
+def get_annotations_from_brainiak(document_id):
 
     permalink = get_url_solr(document_id)
 
@@ -321,7 +341,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
             print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
                 "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
             print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
-            # print frequent_size, itemsets
+            print frequent_size #, itemsets
             print "Total itemsets:", len(itemsets)
             print
 
@@ -403,23 +423,24 @@ def print_progress(timestamp, miss):
 def process_stream_file(stream_sorted, selected_product_id):
     global num_transactions, start_t, stop_t, next_generate_fis
     start_t = stop_t = dt.now()
-    miss = 0
+    total_miss = 0
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            annotations = annotations_to_redis(document_id)
+            miss, annotations = get_annotations(document_id)
+            total_miss += miss
             slide_window(window_size, document_id, int(user_id), timestamp, annotations)
             if num_transactions % 1000 == 0:
                 pipe1.execute()
-                print_progress(timestamp, miss)
-                miss = 0
+                print_progress(timestamp, total_miss)
+                total_miss = 0
             if window_full and next_generate_fis == None:
                 next_generate_fis = next_round_datetime(cur_datetime, generate_fis_interval)
             if window_full and cur_datetime >= next_generate_fis:
                 pipe1.execute()
-                print_progress(timestamp, miss)
-                miss = 0
+                print_progress(timestamp, total_miss)
+                total_miss = 0
 
                 count_and_delete_pages()
                 count_and_delete_uris()
@@ -432,8 +453,9 @@ def process_stream_file(stream_sorted, selected_product_id):
                     generate_fis(1, [], max_fi_size, next_generate_fis, 0, 'uris')
                 # fis_analize()
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
-                recommend(document_id)
-                
+                # recommend_by_pages(document_id)
+                recommend_by_uris(document_id)
+
                 # import pdb; pdb.set_trace()
 
 
@@ -481,6 +503,18 @@ def clean_redis():
 
     delete_redis()
 
+    lua = """
+    local matches = redis.call('KEYS', 'ANNO:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+    """    
+
+    delete_annotations = r.register_script(lua)
+
+    # delete_annotations()
+
 
 def main():
     global cursor, db, execution_id, s, r, pipe1
@@ -517,6 +551,8 @@ def main():
     for num_file, filename in enumerate(file_list):
         if num_file >= max_files:
             break
+        if num_file != 9:
+            continue
         print ""
         print "Reading stream file "+ filename + "..."
 
