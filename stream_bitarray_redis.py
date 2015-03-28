@@ -336,7 +336,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     global window_id, topten
     print 
 
-    print pages_or_uris
+    print "Pages or URIs?", pages_or_uris
     print 
 
     if pages_or_uris == 'pages':
@@ -356,25 +356,28 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     recursive_generate_fis(frequent_size, prev_frequents, 
         cur_window_size, max_fi_size, cur_support, pages_or_uris)
 
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
     # Print all frequents
     timestamp_start_pos = window_timestamp[(target_user)%len(users_dict)]
     timestamp_end_pos   = window_timestamp[target_user-1]
+
+    print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
+        "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
+    print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
+
     for frequent_size, itemsets in frequents.items():
-        print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
-            "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
-        print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
+        print
         print "Total itemsets size [" + str(frequent_size) + "]:", len(itemsets)
         if frequent_size > 1:
             check_uris(itemsets)
-        print
 
         if save_results:
             save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
                 cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis,
                 pages_or_uris)
 
+    print
     execution_time = calculate_interval()
     window_id += 1
     print "Execution time:", execution_time
