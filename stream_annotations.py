@@ -10,6 +10,7 @@ import glob
 import solr
 import redis
 from progress.bar import Bar
+import MySQLdb
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -120,7 +121,7 @@ def doc_annotation_count():
     """
     del_annotations = r.register_script(lua)
 
-    del_annotations()
+    # del_annotations()
 
     lua = """
     local matches = redis.call('KEYS', 'ANNO:*')
@@ -128,7 +129,12 @@ def doc_annotation_count():
     redis.call('DEL', 'ANNO_COUNTS')
 
     for _,key in ipairs(matches) do
-        local val = redis.call('LLEN', key)
+        local val = redis.call('LRANGE', key, 0, 0)
+        if val[1] == '0' then
+            val = '0'
+        else
+            val = redis.call('LLEN', key)
+        end
         redis.call('HINCRBY', 'ANNO_COUNTS', val, 1)
     end
     """
@@ -136,6 +142,24 @@ def doc_annotation_count():
     count_annotations = r.register_script(lua)
 
     count_annotations()
+
+def redis_to_mysql():
+    db = MySQLdb.connect("localhost","root","","stream" )
+    cursor = db.cursor()
+
+    cursor.execute(""" delete from annotation_count 
+        where product_id = %s
+    """, [selected_product_id] )
+
+    for k in r.hkeys("ANNO_COUNTS"):
+        c = r.hget("ANNO_COUNTS", k)
+        cursor.execute(""" insert into annotation_count 
+            (product_id, size, count)
+            values(%s, %s, %s)
+        """, [selected_product_id, k, c] )
+
+    db.commit()
+
 
 
 def main():
@@ -174,6 +198,7 @@ def main():
 
 
     doc_annotation_count()
+    redis_to_mysql()
 
 
     stop = dt.now()

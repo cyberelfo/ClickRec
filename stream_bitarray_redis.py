@@ -101,7 +101,7 @@ def zero_column(user_index):
         pipe1.setbit("DOCID:"+doc_id, user_index, 0)
 
     for uri in annotations_users[user_index]:
-        pipe1.setbit("URI:"+uri, user_index, 1)
+        pipe1.setbit("URI:"+uri, user_index, 0)
 
 def replace_user(user_id, timestamp):
     global target_user
@@ -265,6 +265,8 @@ def count_and_delete_uris():
         local val = redis.call('BITCOUNT', key)
         if val == 0 then
             redis.call('DEL', key)
+        elseif key == "URI:0" then
+        -- no actions if key is "URI:0"
         else
             redis.call('ZADD', 'URI_COUNTS', tonumber(val), key)
         end
@@ -274,8 +276,63 @@ def count_and_delete_uris():
     count_uris = r.register_script(lua)
     count_uris()
 
+def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
+    cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis, pages_or_uris):
+    global selected_product_id
+
+    cursor.execute(""" insert into bitstream_windows 
+        (execution_id, window_id, window_timestamp, window_start, window_end, window_size
+            )
+        values (%s, %s, %s, %s, %s, %s);
+        """, [execution_id, window_id, timestamp_generate_fis,
+                dt.fromtimestamp(int(timestamp_start_pos[:10])),
+                dt.fromtimestamp(int(timestamp_end_pos[:10])),
+                cur_window_size
+                ] )
+
+    for itemset_id, itemset in enumerate(itemsets):
+        for item in itemset:
+
+            if pages_or_uris == 'pages':
+                document_id = item
+                url = get_url_solr(document_id)
+            else:
+                document_id = 0
+                url = item
+
+            cursor.execute(""" insert into bitstream_itemsets 
+                (execution_id, product_id, window_id, window_timestamp, window_start, window_end, window_size, support,
+                    itemset_id, itemset_size, document_id, keep_heavy_users, remove_bounce_users, url
+                    )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+                """, [execution_id, selected_product_id, window_id, 
+                        timestamp_generate_fis,
+                        dt.fromtimestamp(int(timestamp_start_pos[:10])),
+                        dt.fromtimestamp(int(timestamp_end_pos[:10])),
+                        cur_window_size, support, itemset_id, frequent_size,
+                        document_id, keep_heavy_users, remove_bounce_users, url
+                        ] )
+
+    db.commit()
+
+
+def check_uris(itemsets):
+    topten_docs = [i[len('DOCID:'):] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
+
+
+    hit_top_docs = 0
+    for itemset in itemsets:
+        for doc_id in topten_docs:
+            miss, annotations = get_annotations(doc_id)
+            if itemset.issubset(annotations):
+                hit_top_docs += 1
+                # import pdb; pdb.set_trace()
+                break
+
+    print "hit_top_docs:", hit_top_docs
+
 def generate_fis(frequent_size, prev_frequents, max_fi_size, 
-    timestamp_generate_fis, document_id, pages_or_uris):
+    timestamp_generate_fis, pages_or_uris):
     global window_id, topten
     print 
 
@@ -295,59 +352,28 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
 
     topten = [i[len_prefix:] for i in r.zrevrange(counts_prefix, 0, 9)]
 
-    if document_id == 0:
-        cur_support = support
-        recursive_generate_fis(frequent_size, prev_frequents, 
-            cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris)
-    elif r.exists(keys_prefix+document_id):
-        print "document_id:", document_id
-        # import pdb; pdb.set_trace()
+    cur_support = support
+    recursive_generate_fis(frequent_size, prev_frequents, 
+        cur_window_size, max_fi_size, cur_support, pages_or_uris)
 
-        upper_bound = r.bitcount(keys_prefix+document_id)
-        lower_bound = 1
-        while True:
-            if upper_bound == lower_bound:
-                cur_support = 0
-                break
-            support_count = (upper_bound + lower_bound) / 2
-            if support_count <= 1:
-                break
-            print "Support Count:", support_count
-            cur_support = float(support_count) / float(cur_window_size)
-            if support_count == 1:
-                break
-            recursive_generate_fis(frequent_size, prev_frequents, 
-                cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris)
-            print "Size:", len(frequents[2])
-            if len(frequents[2]) >= 5 and len(frequents[2]) <= 10:
-                break
-            elif len(frequents[2]) > 10:
-                lower_bound = support_count + 1
-            elif len(frequents[2]) < 5:
-                upper_bound = support_count
-
-    else:
-        print "document_id:", document_id, "not found"
-        return
-
-
-    # import pdb; pdb.set_trace()
+    import pdb; pdb.set_trace()
 
     # Print all frequents
     timestamp_start_pos = window_timestamp[(target_user)%len(users_dict)]
     timestamp_end_pos   = window_timestamp[target_user-1]
     for frequent_size, itemsets in frequents.items():
-        if frequent_size > 1 and frequent_size <= max_fi_size:
-            print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
-                "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
-            print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
-            print frequent_size #, itemsets
-            print "Total itemsets:", len(itemsets)
-            print
+        print "Window from ", dt.fromtimestamp(int(timestamp_start_pos[:10])), \
+            "to",dt.fromtimestamp(int(timestamp_end_pos[:10]))
+        print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
+        print "Total itemsets size [" + str(frequent_size) + "]:", len(itemsets)
+        if frequent_size > 1:
+            check_uris(itemsets)
+        print
 
-            if save_results:
-                save_frequents(window_id, timestamp_start_pos, timestamp_end_pos, \
-                    cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis)
+        if save_results:
+            save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
+                cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis,
+                pages_or_uris)
 
     execution_time = calculate_interval()
     window_id += 1
@@ -358,7 +384,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
 
 
 def recursive_generate_fis(frequent_size, prev_frequents,
-    cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris):
+    cur_window_size, max_fi_size, cur_support, pages_or_uris):
 
     frequents[frequent_size] = []
 
@@ -382,9 +408,7 @@ def recursive_generate_fis(frequent_size, prev_frequents,
                                             for j in frequents[frequent_size-1] 
                                             if len(i.union(j)) == frequent_size
                                             and i != j])
-        if document_id != 0:
-            item_combinations = [i for i in item_combinations if document_id in i]
-        print "Combinations:", len(item_combinations)
+        print "Combinations size[" + str(frequent_size) + "]:", len(item_combinations)
         for itemset in item_combinations:
             for item in enumerate(itemset):
                 if item[0] == 0:
@@ -398,7 +422,7 @@ def recursive_generate_fis(frequent_size, prev_frequents,
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
         recursive_generate_fis(frequent_size+1, frequents[frequent_size],
-            cur_window_size, max_fi_size, cur_support, document_id, pages_or_uris)
+            cur_window_size, max_fi_size, cur_support, pages_or_uris)
 
 def calculate_interval():
     global start_t, stop_t
@@ -445,16 +469,12 @@ def process_stream_file(stream_sorted, selected_product_id):
                 count_and_delete_pages()
                 count_and_delete_uris()
 
-                if support == 0:
-                    generate_fis(1, [], max_fi_size, next_generate_fis, 
-                        document_id, 'pages')
-                else:
-                    # generate_fis(1, [], max_fi_size, next_generate_fis, 0, 'pages')
-                    generate_fis(1, [], max_fi_size, next_generate_fis, 0, 'uris')
+                # generate_fis(1, [], max_fi_size, next_generate_fis, 'pages')
+                generate_fis(1, [], max_fi_size, next_generate_fis, 'uris')
                 # fis_analize()
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
                 # recommend_by_pages(document_id)
-                recommend_by_uris(document_id)
+                # recommend_by_uris(document_id)
 
                 # import pdb; pdb.set_trace()
 
@@ -478,8 +498,6 @@ def get_files(local_file):
     return file_list
 
 def clean_redis():
-
-    # lua = "redis.call('del', unpack(redis.call('keys', 'DOCID:*')))"
 
     lua = """
     local matches = redis.call('KEYS', 'DOCID:*')
@@ -513,7 +531,7 @@ def clean_redis():
 
     delete_annotations = r.register_script(lua)
 
-    # delete_annotations()
+    delete_annotations()
 
 
 def main():
@@ -551,8 +569,6 @@ def main():
     for num_file, filename in enumerate(file_list):
         if num_file >= max_files:
             break
-        if num_file != 9:
-            continue
         print ""
         print "Reading stream file "+ filename + "..."
 
