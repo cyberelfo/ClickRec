@@ -159,20 +159,19 @@ def recommend_by_pages(document_id):
 def recommend_by_uris(document_id):
     recommendations = set()
 
-    print "Document:", document_id
     miss, annotations = get_annotations(document_id)
+    # import pdb; pdb.set_trace()
     if annotations == ['0']:
-        return None
+        return recommendations
 
-    annotations_combinations = [set(i) for i in combinations(annotations, 2)]
+    # annotations_combinations = [set(i) for i in combinations(annotations, 2)]
 
-    print "annotations:", annotations
-    for annotation in annotations_combinations:
-        print "annotation:", annotation
-        if annotation in frequents[2]:
-            # import pdb; pdb.set_trace()
-            print "Frequent!"
+    for annotation in annotations:
+        for frequent in frequents[2]:
+            if annotation in frequent:
+                recommendations.add(frequent - set([annotation]))
 
+    return recommendations
 
 def get_url_solr(document_id):
     global s
@@ -319,7 +318,6 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 def check_uris(itemsets):
     topten_docs = [i[len('DOCID:'):] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
 
-
     hit_top_docs = 0
     for itemset in itemsets:
         for doc_id in topten_docs:
@@ -412,6 +410,8 @@ def recursive_generate_fis(frequent_size, prev_frequents,
                                             if len(i.union(j)) == frequent_size
                                             and i != j])
         print "Combinations size[" + str(frequent_size) + "]:", len(item_combinations)
+
+
         for itemset in item_combinations:
             for item in enumerate(itemset):
                 if item[0] == 0:
@@ -422,6 +422,8 @@ def recursive_generate_fis(frequent_size, prev_frequents,
             if r.bitcount('bit_vector') >= cur_support * cur_window_size:
                 frequents[frequent_size].append(itemset)
         r.delete('bit_vector')
+
+    # import pdb; pdb.set_trace()
 
     if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
         recursive_generate_fis(frequent_size+1, frequents[frequent_size],
@@ -434,7 +436,7 @@ def calculate_interval():
     start_t = stop_t
     return execution_time
 
-def print_progress(timestamp, miss):
+def print_progress(timestamp, miss, recommendation_ratio = 0):
     row_datetime = dt.fromtimestamp(int(timestamp[:10]))
     execution_time = calculate_interval()
     if window_full:
@@ -445,11 +447,15 @@ def print_progress(timestamp, miss):
     print num_transactions, "- Execution time:", \
         execution_time, \
         "Window size:", cur_window_size, "Pages:", \
-        "0", "Row timestamp:", row_datetime, "Miss:", miss
+        "0", "Row timestamp:", row_datetime, "Miss:", miss, "Ratio:", recommendation_ratio
 
 def process_stream_file(stream_sorted, selected_product_id):
     global num_transactions, start_t, stop_t, next_generate_fis
     start_t = stop_t = dt.now()
+    has_fis = False
+    total_recommendations = 0
+    total_recommendations_found = 0
+    recommendation_ratio = 0
     total_miss = 0
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
@@ -460,7 +466,7 @@ def process_stream_file(stream_sorted, selected_product_id):
             slide_window(window_size, document_id, int(user_id), timestamp, annotations)
             if num_transactions % 1000 == 0:
                 pipe1.execute()
-                print_progress(timestamp, total_miss)
+                print_progress(timestamp, total_miss, recommendation_ratio)
                 total_miss = 0
             if window_full and next_generate_fis == None:
                 next_generate_fis = next_round_datetime(cur_datetime, generate_fis_interval)
@@ -475,9 +481,20 @@ def process_stream_file(stream_sorted, selected_product_id):
                 # generate_fis(1, [], max_fi_size, next_generate_fis, 'pages')
                 generate_fis(1, [], max_fi_size, next_generate_fis, 'uris')
                 # fis_analize()
+                has_fis = True
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
                 # recommend_by_pages(document_id)
-                # recommend_by_uris(document_id)
+
+                total_recommendations = 0
+                total_recommendations_found = 0
+                recommendation_ratio = 0
+
+            if window_full and has_fis:
+                total_recommendations += 1
+                recommendation = recommend_by_uris(document_id)
+                if len(recommendation) > 0:
+                    total_recommendations_found += 1
+                recommendation_ratio = float(total_recommendations_found) / float(total_recommendations)
 
                 # import pdb; pdb.set_trace()
 
