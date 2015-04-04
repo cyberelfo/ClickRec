@@ -1,0 +1,26 @@
+Redis keys:
+
+"ANNO:<doc_id_number>" 
+List of annotations from a document
+Ex.:
+LRANGE "ANNO:1437614" 0 -1
+
+"DOCID:<doc_id_number>"
+Bitarray with reads of this document
+Ex.:
+BITCOUNT "DOCID:1436382"
+
+"URI:<uri>"
+Bitarray with reads of this annotation
+Ex.:
+BITCOUNT "URI:http://semantica.globo.com/esportes/atleta/69325"
+
+"DOC_COUNTS"
+Counts of the reads of all documents on this window
+Ex.:
+ZREVRANGE "DOC_COUNTS" 0 -1 WITHSCORES
+
+"URI_COUNTS"
+Counts of the reads of all uris on this window
+Ex.:
+ZREVRANGE "URI_COUNTS" 0 -1 WITHSCORES
