@@ -55,6 +55,7 @@ users = [0] * window_size
 users_dict = {}
 pages_users = [set() for i in range(window_size)]
 annotations_users = [set() for i in range(window_size)]
+sections_users = [set() for i in range(window_size)]
 frequents = {}
 num_transactions = 0
 start_t = stop_t = 0
@@ -88,20 +89,27 @@ def sort_by_column(csv_cont, col_index, reverse=False):
            reverse=reverse)
     return body
 
-def user_visit_document(user_index, document_id, annotations):
+def user_visit_document(user_index, document_id, annotations, sections):
     pages_users[user_index].add(document_id)
-    pipe1.setbit("DOCID:"+document_id, user_index, 1)
+    pipe1.setbit("BIT_DOC:"+document_id, user_index, 1)
 
     annotations_users[user_index] |= set(annotations)
     for uri in annotations:
-        pipe1.setbit("URI:"+uri, user_index, 1)
+        pipe1.setbit("BIT_URI:"+uri, user_index, 1)
+
+    sections_users[user_index] |= set(sections)
+    for section in sections:
+        pipe1.setbit("BIT_SEC:"+section, user_index, 1)
 
 def zero_column(user_index):
     for doc_id in pages_users[user_index]:
-        pipe1.setbit("DOCID:"+doc_id, user_index, 0)
+        pipe1.setbit("BIT_DOC:"+doc_id, user_index, 0)
 
     for uri in annotations_users[user_index]:
-        pipe1.setbit("URI:"+uri, user_index, 0)
+        pipe1.setbit("BIT_URI:"+uri, user_index, 0)
+
+    for section in sections_users[user_index]:
+        pipe1.setbit("BIT_SEC:"+section, user_index, 0)
 
 def replace_user(user_id, timestamp):
     global target_user
@@ -118,12 +126,13 @@ def replace_user(user_id, timestamp):
     users[target_user] = user_id
     pages_users[target_user] = set()
     annotations_users[target_user] = set()
+    sections_users[target_user] = set()
     users_dict[user_id] = target_user
     window_timestamp[target_user] = timestamp
     target_user = (target_user + 1) % window_size
     return removed_user
 
-def slide_window(size, document_id, user_id, timestamp, annotations):
+def slide_window(size, document_id, user_id, timestamp, annotations, sections):
     global window_full
 
     if user_id not in users_dict:
@@ -132,7 +141,7 @@ def slide_window(size, document_id, user_id, timestamp, annotations):
         window_full = len(users_dict) == window_size
 
     user_index = users_dict[user_id]
-    user_visit_document(user_index, document_id, annotations)
+    user_visit_document(user_index, document_id, annotations, sections)
 
 def recommend_by_pages(document_id):
     recommendations = set()
@@ -159,7 +168,7 @@ def recommend_by_pages(document_id):
 def recommend_by_uris(document_id):
     recommendations = set()
 
-    miss, annotations = get_annotations(document_id)
+    miss, annotations, sections = get_annotations(document_id)
     # import pdb; pdb.set_trace()
     if annotations == ['0']:
         return recommendations
@@ -195,25 +204,31 @@ def get_url_solr(document_id):
 
 def get_annotations(document_id):
 
-    annotation_found = r.exists("ANNO:"+document_id)
+    annotation_found = r.exists("ANNOTATIONS:"+document_id)
     if annotation_found:
-        annotations = r.lrange("ANNO:"+document_id, 0, -1)
+        annotations = r.lrange("ANNOTATIONS:"+document_id, 0, -1)
+        sections = r.lrange("SECTIONS:"+document_id, 0, -1)
         miss = 0
 
     else:
-        response = s.query('documentId:'+str(document_id), fields='entity')
+        response = s.query('documentId:'+str(document_id), fields='entity, section')
 
         annotations = ['0']
+        sections = ['0']
+
         if response.numFound == 1:
             if 'entity' in response.results[0]:
                 annotations = response.results[0]['entity']
+            if 'section' in response.results[0]:
+                sections = response.results[0]['section']
 
         # if annotations == ['0']:
-        #     print "ANNO:"+document_id
-        r.rpush("ANNO:"+document_id, *annotations)
+        #     print "ANNOTATIONS:"+document_id
+        r.rpush("ANNOTATIONS:"+document_id, *annotations)
+        r.rpush("SECTIONS:"+document_id, *sections)
         miss = 1
 
-    return miss, annotations
+    return miss, annotations, sections
 
 def get_annotations_from_brainiak(document_id):
 
@@ -236,7 +251,7 @@ def get_annotations_from_brainiak(document_id):
 def count_and_delete_pages():
 
     lua = """
-    local matches = redis.call('KEYS', 'DOCID:*')
+    local matches = redis.call('KEYS', 'BIT_DOC:*')
 
     redis.call('DEL', 'DOC_COUNTS')
 
@@ -256,7 +271,7 @@ def count_and_delete_pages():
 def count_and_delete_uris():
 
     lua = """
-    local matches = redis.call('KEYS', 'URI:*')
+    local matches = redis.call('KEYS', 'BIT_URI:*')
 
     redis.call('DEL', 'URI_COUNTS')
 
@@ -264,10 +279,32 @@ def count_and_delete_uris():
         local val = redis.call('BITCOUNT', key)
         if val == 0 then
             redis.call('DEL', key)
-        elseif key == "URI:0" then
-        -- no actions if key is "URI:0"
+        elseif key == "BIT_URI:0" then
+        -- no actions if key is "BIT_URI:0"
         else
             redis.call('ZADD', 'URI_COUNTS', tonumber(val), key)
+        end
+    end
+    """    
+
+    count_uris = r.register_script(lua)
+    count_uris()
+
+def count_and_delete_sections():
+
+    lua = """
+    local matches = redis.call('KEYS', 'BIT_SEC:*')
+
+    redis.call('DEL', 'SEC_COUNTS')
+
+    for _,key in ipairs(matches) do
+        local val = redis.call('BITCOUNT', key)
+        if val == 0 then
+            redis.call('DEL', key)
+        elseif key == "BIT_SEC:0" then
+        -- no actions if key is "BIT_SEC:0"
+        else
+            redis.call('ZADD', 'SEC_COUNTS', tonumber(val), key)
         end
     end
     """    
@@ -316,12 +353,12 @@ def save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
 
 
 def check_uris(itemsets):
-    topten_docs = [i[len('DOCID:'):] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
+    topten_docs = [i[len('BIT_DOC:'):] for i in r.zrevrange('DOC_COUNTS', 0, 9)]
 
     hit_top_docs = 0
     for itemset in itemsets:
         for doc_id in topten_docs:
-            miss, annotations = get_annotations(doc_id)
+            miss, annotations, sections = get_annotations(doc_id)
             if itemset.issubset(annotations):
                 hit_top_docs += 1
                 # import pdb; pdb.set_trace()
@@ -338,10 +375,10 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     print 
 
     if pages_or_uris == 'pages':
-        keys_prefix = 'DOCID:'
+        keys_prefix = 'BIT_DOC:'
         counts_prefix = 'DOC_COUNTS'
     else:
-        keys_prefix = 'URI:'
+        keys_prefix = 'BIT_URI:'
         counts_prefix = 'URI_COUNTS'
 
     len_prefix = len(keys_prefix)
@@ -367,8 +404,8 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     for frequent_size, itemsets in frequents.items():
         print
         print "Total itemsets size [" + str(frequent_size) + "]:", len(itemsets)
-        if frequent_size > 1:
-            check_uris(itemsets)
+        # if frequent_size > 1:
+        #     check_uris(itemsets)
 
         if save_results:
             save_frequents(window_id, timestamp_start_pos, timestamp_end_pos,
@@ -390,11 +427,14 @@ def recursive_generate_fis(frequent_size, prev_frequents,
     frequents[frequent_size] = []
 
     if pages_or_uris == 'pages':
-        keys_prefix = 'DOCID:'
+        keys_prefix = 'BIT_DOC:'
         counts_prefix = 'DOC_COUNTS'
-    else:
-        keys_prefix = 'URI:'
+    elif pages_or_uris == 'uris':
+        keys_prefix = 'BIT_URI:'
         counts_prefix = 'URI_COUNTS'
+    else:
+        keys_prefix = 'BIT_SEC:'
+        counts_prefix = 'SEC_COUNTS'
 
     len_prefix = len(keys_prefix)
 
@@ -461,9 +501,9 @@ def process_stream_file(stream_sorted, selected_product_id):
         if product_id == selected_product_id:
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            miss, annotations = get_annotations(document_id)
+            miss, annotations, sections = get_annotations(document_id)
             total_miss += miss
-            slide_window(window_size, document_id, int(user_id), timestamp, annotations)
+            slide_window(window_size, document_id, int(user_id), timestamp, annotations, sections)
             if num_transactions % 1000 == 0:
                 pipe1.execute()
                 print_progress(timestamp, total_miss, recommendation_ratio)
@@ -477,8 +517,10 @@ def process_stream_file(stream_sorted, selected_product_id):
 
                 count_and_delete_pages()
                 count_and_delete_uris()
+                count_and_delete_sections()
 
                 # generate_fis(1, [], max_fi_size, next_generate_fis, 'pages')
+                generate_fis(1, [], max_fi_size, next_generate_fis, 'sections')
                 generate_fis(1, [], max_fi_size, next_generate_fis, 'uris')
                 # fis_analize()
                 has_fis = True
@@ -520,7 +562,7 @@ def get_files(local_file):
 def clean_redis():
 
     lua = """
-    local matches = redis.call('KEYS', 'DOCID:*')
+    local matches = redis.call('KEYS', 'BIT_DOC:*')
 
     redis.call('DEL', 'DOC_COUNTS')
 
@@ -528,9 +570,17 @@ def clean_redis():
         redis.call('DEL', key)
     end
 
-    local matches = redis.call('KEYS', 'URI:*')
+    local matches = redis.call('KEYS', 'BIT_URI:*')
 
     redis.call('DEL', 'URI_COUNTS')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'BIT_SEC:*')
+
+    redis.call('DEL', 'SEC_COUNTS')
 
     for _,key in ipairs(matches) do
         redis.call('DEL', key)
@@ -542,7 +592,13 @@ def clean_redis():
     delete_redis()
 
     lua = """
-    local matches = redis.call('KEYS', 'ANNO:*')
+    local matches = redis.call('KEYS', 'ANNOTATIONS:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'SECTIONS:*')
 
     for _,key in ipairs(matches) do
         redis.call('DEL', key)

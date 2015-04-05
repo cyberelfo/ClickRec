@@ -1,19 +1,30 @@
 Redis keys:
 
-"ANNO:<doc_id_number>" 
+"ANNOTATIONS:<doc_id_number>" 
 List of annotations from a document
 Ex.:
-LRANGE "ANNO:1437614" 0 -1
+LRANGE "ANNOTATIONS:1437614" 0 -1
 
-"DOCID:<doc_id_number>"
+"SECTIONS:<doc_id_number>" 
+List of sections from a document
+Ex.:
+LRANGE "SECT:1437614" 0 -1
+
+
+"BIT_DOC:<doc_id_number>"
 Bitarray with reads of this document
 Ex.:
-BITCOUNT "DOCID:1436382"
+BITCOUNT "BIT_DOC:1436382"
 
-"URI:<uri>"
+"BIT_URI:<uri>"
 Bitarray with reads of this annotation
 Ex.:
 BITCOUNT "URI:http://semantica.globo.com/esportes/atleta/69325"
+
+"BIT_SEC:<section>"
+Bitarray with reads of this section
+Ex.:
+BITCOUNT "URI:?????"
 
 "DOC_COUNTS"
 Counts of the reads of all documents on this window
