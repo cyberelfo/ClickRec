@@ -14,6 +14,7 @@ import redis
 from bitarray import bitarray
 import requests
 from progress.bar import Bar
+import pickle
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -366,6 +367,11 @@ def check_uris(itemsets):
 
     print "hit_top_docs:", hit_top_docs
 
+def save_frequents_redis(pages_or_uris, fi_size):
+    r.delete('FREQS:'+pages_or_uris+':'+str(fi_size))
+    pickled_object = pickle.dumps(frequents[fi_size])
+    r.set('FREQS:'+pages_or_uris+':'+str(fi_size), pickled_object)
+
 def generate_fis(frequent_size, prev_frequents, max_fi_size, 
     timestamp_generate_fis, pages_or_uris):
     global window_id, topten
@@ -377,9 +383,12 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     if pages_or_uris == 'pages':
         keys_prefix = 'BIT_DOC:'
         counts_prefix = 'DOC_COUNTS'
-    else:
+    elif pages_or_uris == 'uris':
         keys_prefix = 'BIT_URI:'
         counts_prefix = 'URI_COUNTS'
+    else:
+        keys_prefix = 'BIT_SEC:'
+        counts_prefix = 'SEC_COUNTS'
 
     len_prefix = len(keys_prefix)
 
@@ -412,6 +421,8 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
                 cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis,
                 pages_or_uris)
 
+
+    save_frequents_redis(pages_or_uris, 2)
     print
     execution_time = calculate_interval()
     window_id += 1
