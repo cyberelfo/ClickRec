@@ -169,7 +169,7 @@ def recommend_by_pages(document_id):
 def recommend_by_uris(document_id):
     recommendations = set()
 
-    miss, annotations, sections = get_annotations(document_id)
+    miss, annotations, sections, url = get_annotations(document_id)
     # import pdb; pdb.set_trace()
     if annotations == ['0']:
         return recommendations
@@ -209,27 +209,32 @@ def get_annotations(document_id):
     if annotation_found:
         annotations = r.lrange("ANNOTATIONS:"+document_id, 0, -1)
         sections = r.lrange("SECTIONS:"+document_id, 0, -1)
+        url = r.get("url:"+document_id)
         miss = 0
 
     else:
-        response = s.query('documentId:'+str(document_id), fields='entity, section')
+        response = s.query('documentId:'+str(document_id), fields='url, entity, section')
 
         annotations = ['0']
         sections = ['0']
+        url = ['0']
 
         if response.numFound == 1:
             if 'entity' in response.results[0]:
                 annotations = response.results[0]['entity']
             if 'section' in response.results[0]:
                 sections = response.results[0]['section']
+            if 'url' in response.results[0]:
+                url = response.results[0]['url']
 
         # if annotations == ['0']:
         #     print "ANNOTATIONS:"+document_id
         r.rpush("ANNOTATIONS:"+document_id, *annotations)
         r.rpush("SECTIONS:"+document_id, *sections)
+        r.set("URL:"+document_id, url)
         miss = 1
 
-    return miss, annotations, sections
+    return miss, annotations, sections, url
 
 def get_annotations_from_brainiak(document_id):
 
@@ -359,7 +364,7 @@ def check_uris(itemsets):
     hit_top_docs = 0
     for itemset in itemsets:
         for doc_id in topten_docs:
-            miss, annotations, sections = get_annotations(doc_id)
+            miss, annotations, sections, url = get_annotations(doc_id)
             if itemset.issubset(annotations):
                 hit_top_docs += 1
                 # import pdb; pdb.set_trace()
@@ -512,7 +517,7 @@ def process_stream_file(stream_sorted, selected_product_id):
         if product_id == selected_product_id:
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            miss, annotations, sections = get_annotations(document_id)
+            miss, annotations, sections, url = get_annotations(document_id)
             total_miss += miss
             slide_window(window_size, document_id, int(user_id), timestamp, annotations, sections)
             if num_transactions % 1000 == 0:
@@ -610,6 +615,12 @@ def clean_redis():
     end
 
     local matches = redis.call('KEYS', 'SECTIONS:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'URL:*')
 
     for _,key in ipairs(matches) do
         redis.call('DEL', key)

@@ -6,6 +6,7 @@ import argparse
 import ConfigParser
 import redis
 import pickle
+from datetime import datetime as dt
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -17,6 +18,13 @@ parser.add_argument("document_id",
 args = parser.parse_args()
 document_id = args.document_id
 
+def run_query(query):
+    from SPARQLWrapper import SPARQLWrapper, JSON
+    _sparql = SPARQLWrapper("http://staging.semantica.globoi.com/sparql/")
+    _sparql.setQuery(query)
+    _sparql.setReturnFormat(JSON)
+    results = _sparql.query().convert()
+    return results["results"]["bindings"]
 
 def get_annotations(document_id):
 
@@ -46,50 +54,120 @@ def get_annotations(document_id):
 
     return miss, annotations, sections
 
-def recommend(fi_type, document_id):
-    recommendations = set()
+def sections_profile(document_id):
+    profile = set()
 
     miss, annotations, sections = get_annotations(document_id)
     # import pdb; pdb.set_trace()
-    if annotations == ['0']:
-        return recommendations
+    if sections == ['0']:
+        return sections
 
-    # annotations_combinations = [set(i) for i in combinations(annotations, 2)]
-
-
-
-    print "annotations:", annotations
-    print "sections:", sections
     print
-    frequents = pickle.loads(r.get('FREQS:'+fi_type+':2'))
+    print '#########'
+    print "Sections:", sections
+    print
+    frequents = pickle.loads(r.get('FREQS:sections:2'))
 
-    if fi_type == "uris":
-        items = annotations
-    else:
-        items = sections
+    # import pdb; pdb.set_trace()
 
-    for item in items:
+    for section in sections:
         for frequent in frequents:
-            if item in frequent:
-                recommendations.add(frequent - set([item]))
+            if section in frequent:
+                # print str((frequent - set([profile])))
+                # profile |= (frequent - set([section]))
+                profile.add(frequent)
 
-    return recommendations
+    print "Profile:"
+    for p in profile:
+        print p
+
+    return profile
+
+def frequent_annotations(document_id):
+    freq_annotations = set()
+
+    miss, annotations, sections = get_annotations(document_id)
+    if annotations == ['0']:
+        print "Document has no annotation"
+        return freq_annotations
+
+    print
+    print "############"
+    print "Annotations:", annotations
+    print
+    frequents = pickle.loads(r.get('FREQS:uris:2'))
+
+    # import pdb; pdb.set_trace()
+
+    for annotation in annotations:
+        for frequent in frequents:
+            if annotation in frequent:
+                print frequent
+                freq_annotations |= (frequent - set([annotation]))
+                # recommendations.add(frequent)
+
+    return freq_annotations
+
+
+def recommend(freq_annotations):
+
+    i_recommendations = iter(freq_annotations)
+    rec = next(i_recommendations)
+    query_where = '{?s ?p <'+rec+'> }\n'
+    for rec in i_recommendations:
+        query_where += 'UNION {?s ?p <'+rec+'> }\n'
+
+    query = """ 
+    SELECT ?s count(?s) as ?qty
+    FROM <http://semantica.globo.com/esportes/>
+    WHERE {?s a <http://semantica.globo.com/esportes/MateriaEsporte> .
+           { %s }
+    } 
+    GROUP BY ?s
+    ORDER BY DESC(?qty)
+    LIMIT 10
+    """ % (query_where)
+
+    articles = run_query(query)
+
+    print
+    print "Qty annotations - News article URL"
+    print "----------------------------------"
+    for article in articles:
+        print article['qty']['value'], article['s']['value']
+
+    return articles
 
 def main():
     global r, s
     print "Program start..."
+    start = dt.now()
 
     s = solr.SolrConnection(solr_endpoint)
 
     r = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-    print
-    recommendation = recommend('uris',document_id)
-    print recommendation
+    url = r.get("URL:"+document_id)
+
+    print "URL:", url 
+
+    profile = sections_profile(document_id)
 
     print
-    recommendation = recommend('sections',document_id)
-    print recommendation
+    freq_annotations = frequent_annotations(document_id)
+
+    if len(freq_annotations) > 0:
+        articles = recommend(freq_annotations)
+    else:
+        print "Document annotations not found in frequent itemsets"
+
+    stop = dt.now()
+    execution_time = stop - start 
+
+    print
+    print "End processing"
+    print "Execution time:", execution_time
+
 
 if __name__ == '__main__':
     main()
