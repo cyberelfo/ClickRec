@@ -57,7 +57,6 @@ users_dict = {}
 pages_users = [set() for i in range(window_size)]
 annotations_users = [set() for i in range(window_size)]
 sections_users = [set() for i in range(window_size)]
-frequents = {}
 num_transactions = 0
 start_t = stop_t = 0
 window_timestamp = [0] * window_size
@@ -144,44 +143,6 @@ def slide_window(size, document_id, user_id, timestamp, annotations, sections):
     user_index = users_dict[user_id]
     user_visit_document(user_index, document_id, annotations, sections)
 
-def recommend_by_pages(document_id):
-    recommendations = set()
-    for itemset in frequents[2]:
-        if document_id in itemset:
-            # import pdb; pdb.set_trace()
-            item = set(itemset) - set([document_id])
-            recommendations = recommendations.union(item)
-
-    # import pdb; pdb.set_trace()
-
-    for docid in topten:
-        if len(recommendations) >= 10:
-            break
-        if docid != document_id:
-            recommendations = recommendations.union([docid])
-
-    print "Document:", document_id
-    print "Recommendations:", recommendations
-    print
-
-    # import pdb; pdb.set_trace()
-
-def recommend_by_uris(document_id):
-    recommendations = set()
-
-    miss, annotations, sections, url = get_annotations(document_id)
-    # import pdb; pdb.set_trace()
-    if annotations == ['0']:
-        return recommendations
-
-    # annotations_combinations = [set(i) for i in combinations(annotations, 2)]
-
-    for annotation in annotations:
-        for frequent in frequents[2]:
-            if annotation in frequent:
-                recommendations.add(frequent - set([annotation]))
-
-    return recommendations
 
 def get_url_solr(document_id):
     global s
@@ -232,6 +193,15 @@ def get_annotations(document_id):
         r.rpush("ANNOTATIONS:"+document_id, *annotations)
         r.rpush("SECTIONS:"+document_id, *sections)
         r.set("URL:"+document_id, url)
+
+        if annotations != ['0']:
+            for annotation in annotations:
+                r.rpush("URI_DOCS:"+annotation, document_id)
+
+        if sections != ['0']:
+            for section in sections:
+                r.rpush("SEC_DOCS:"+section, document_id)
+
         miss = 1
 
     return miss, annotations, sections, url
@@ -372,28 +342,58 @@ def check_uris(itemsets):
 
     print "hit_top_docs:", hit_top_docs
 
-def save_frequents_redis(pages_or_uris, fi_size):
-    r.delete('FREQS:'+pages_or_uris+':'+str(fi_size))
-    pickled_object = pickle.dumps(frequents[fi_size])
+def save_frequents_redis(pages_or_uris, fi_size, items):
+    # import pdb; pdb.set_trace()
+    pickled_object = pickle.dumps(items)
     r.set('FREQS:'+pages_or_uris+':'+str(fi_size), pickled_object)
 
-def generate_fis(frequent_size, prev_frequents, max_fi_size, 
-    timestamp_generate_fis, pages_or_uris):
+def generate_fis(max_fi_size, timestamp_generate_fis, pages_or_uris):
     global window_id, topten
-    print 
 
-    print "Pages or URIs?", pages_or_uris
+    print 
+    print "# Pages or URIs?", pages_or_uris, "#"
     print 
 
     if pages_or_uris == 'pages':
         keys_prefix = 'BIT_DOC:'
         counts_prefix = 'DOC_COUNTS'
+
+        lua = """
+        local matches = redis.call('KEYS', 'FREQS:pages:*')
+
+        for _,key in ipairs(matches) do
+            redis.call('DEL', key)
+        end
+        """    
+
     elif pages_or_uris == 'uris':
         keys_prefix = 'BIT_URI:'
         counts_prefix = 'URI_COUNTS'
+
+        lua = """
+        local matches = redis.call('KEYS', 'FREQS:uris:*')
+
+        for _,key in ipairs(matches) do
+            redis.call('DEL', key)
+        end
+        """
+
     else:
         keys_prefix = 'BIT_SEC:'
         counts_prefix = 'SEC_COUNTS'
+
+        lua = """
+        local matches = redis.call('KEYS', 'FREQS:sections:*')
+
+        for _,key in ipairs(matches) do
+            redis.call('DEL', key)
+        end
+        """
+
+
+    delete_freqs = r.register_script(lua)
+
+    delete_freqs()
 
     len_prefix = len(keys_prefix)
 
@@ -402,7 +402,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     topten = [i[len_prefix:] for i in r.zrevrange(counts_prefix, 0, 9)]
 
     cur_support = support
-    recursive_generate_fis(frequent_size, prev_frequents, 
+    frequents = recursive_generate_fis(1, {}, 
         cur_window_size, max_fi_size, cur_support, pages_or_uris)
 
     # import pdb; pdb.set_trace()
@@ -416,7 +416,6 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     print "Support:", cur_support, "- Support count:", cur_support * cur_window_size
 
     for frequent_size, itemsets in frequents.items():
-        print
         print "Total itemsets size [" + str(frequent_size) + "]:", len(itemsets)
         # if frequent_size > 1:
         #     check_uris(itemsets)
@@ -426,8 +425,6 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
                 cur_window_size, support, itemsets, frequent_size, timestamp_generate_fis,
                 pages_or_uris)
 
-
-    save_frequents_redis(pages_or_uris, 2)
     print
     execution_time = calculate_interval()
     window_id += 1
@@ -437,7 +434,7 @@ def generate_fis(frequent_size, prev_frequents, max_fi_size,
     # import pdb; pdb.set_trace()
 
 
-def recursive_generate_fis(frequent_size, prev_frequents,
+def recursive_generate_fis(frequent_size, frequents,
     cur_window_size, max_fi_size, cur_support, pages_or_uris):
 
     frequents[frequent_size] = []
@@ -454,6 +451,7 @@ def recursive_generate_fis(frequent_size, prev_frequents,
 
     len_prefix = len(keys_prefix)
 
+    # import pdb; pdb.set_trace()
     if frequent_size == 1:
         list_frequent = r.zrangebyscore(counts_prefix, cur_support * cur_window_size, cur_window_size)
 
@@ -465,7 +463,6 @@ def recursive_generate_fis(frequent_size, prev_frequents,
                                             for j in frequents[frequent_size-1] 
                                             if len(i.union(j)) == frequent_size
                                             and i != j])
-        print "Combinations size[" + str(frequent_size) + "]:", len(item_combinations)
 
 
         for itemset in item_combinations:
@@ -481,9 +478,13 @@ def recursive_generate_fis(frequent_size, prev_frequents,
 
     # import pdb; pdb.set_trace()
 
-    if len(frequents[frequent_size]) > 0 and frequent_size < max_fi_size:
-        recursive_generate_fis(frequent_size+1, frequents[frequent_size],
-            cur_window_size, max_fi_size, cur_support, pages_or_uris)
+    if len(frequents[frequent_size]) > 0:
+        save_frequents_redis(pages_or_uris, frequent_size, frequents[frequent_size])
+        if frequent_size < max_fi_size:
+            frequents = recursive_generate_fis(frequent_size+1, frequents,
+                cur_window_size, max_fi_size, cur_support, pages_or_uris)
+
+    return frequents
 
 def calculate_interval():
     global start_t, stop_t
@@ -492,7 +493,7 @@ def calculate_interval():
     start_t = stop_t
     return execution_time
 
-def print_progress(timestamp, miss, recommendation_ratio = 0):
+def print_progress(timestamp, miss):
     row_datetime = dt.fromtimestamp(int(timestamp[:10]))
     execution_time = calculate_interval()
     if window_full:
@@ -503,7 +504,7 @@ def print_progress(timestamp, miss, recommendation_ratio = 0):
     print num_transactions, "- Execution time:", \
         execution_time, \
         "Window size:", cur_window_size, "Pages:", \
-        "0", "Row timestamp:", row_datetime, "Miss:", miss, "Ratio:", recommendation_ratio
+        "0", "Row timestamp:", row_datetime, "Miss:", miss
 
 def process_stream_file(stream_sorted, selected_product_id):
     global num_transactions, start_t, stop_t, next_generate_fis
@@ -511,7 +512,6 @@ def process_stream_file(stream_sorted, selected_product_id):
     has_fis = False
     total_recommendations = 0
     total_recommendations_found = 0
-    recommendation_ratio = 0
     total_miss = 0
     for product_id, _type, document_id, provider_id, user_id, timestamp  in stream_sorted:
         if product_id == selected_product_id:
@@ -522,7 +522,7 @@ def process_stream_file(stream_sorted, selected_product_id):
             slide_window(window_size, document_id, int(user_id), timestamp, annotations, sections)
             if num_transactions % 1000 == 0:
                 pipe1.execute()
-                print_progress(timestamp, total_miss, recommendation_ratio)
+                print_progress(timestamp, total_miss)
                 total_miss = 0
             if window_full and next_generate_fis == None:
                 next_generate_fis = next_round_datetime(cur_datetime, generate_fis_interval)
@@ -535,24 +535,12 @@ def process_stream_file(stream_sorted, selected_product_id):
                 count_and_delete_uris()
                 count_and_delete_sections()
 
-                # generate_fis(1, [], max_fi_size, next_generate_fis, 'pages')
-                generate_fis(1, [], max_fi_size, next_generate_fis, 'sections')
-                generate_fis(1, [], max_fi_size, next_generate_fis, 'uris')
+                frequent_pages = generate_fis(max_fi_size, next_generate_fis, 'pages')
+                frequent_sections = generate_fis(max_fi_size, next_generate_fis, 'sections')
+                frequent_uris = generate_fis(max_fi_size, next_generate_fis, 'uris')
                 # fis_analize()
                 has_fis = True
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
-                # recommend_by_pages(document_id)
-
-                total_recommendations = 0
-                total_recommendations_found = 0
-                recommendation_ratio = 0
-
-            if window_full and has_fis:
-                total_recommendations += 1
-                recommendation = recommend_by_uris(document_id)
-                if len(recommendation) > 0:
-                    total_recommendations_found += 1
-                recommendation_ratio = float(total_recommendations_found) / float(total_recommendations)
 
                 # import pdb; pdb.set_trace()
 
@@ -625,6 +613,30 @@ def clean_redis():
     for _,key in ipairs(matches) do
         redis.call('DEL', key)
     end
+
+    local matches = redis.call('KEYS', 'FREQS:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'DOCID:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'URI_DOCS:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
+
+    local matches = redis.call('KEYS', 'SEC_DOCS:*')
+
+    for _,key in ipairs(matches) do
+        redis.call('DEL', key)
+    end
     """    
 
     delete_annotations = r.register_script(lua)
@@ -642,7 +654,7 @@ def main():
 
     r = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-    print "Clean Redis..."
+    print "Cleaning Redis..."
     clean_redis()
 
     pipe1 = r.pipeline()

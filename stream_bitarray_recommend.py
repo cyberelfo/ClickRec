@@ -7,16 +7,22 @@ import ConfigParser
 import redis
 import pickle
 from datetime import datetime as dt
+from collections import Counter
+import math
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
 solr_endpoint = config.get('main', 'solr_endpoint')
+max_fi_size = config.getint('main', 'max_fi_size')
+
+fi_size = max_fi_size
 
 parser = argparse.ArgumentParser()
 parser.add_argument("document_id", 
-    help="Number of users / size of the window")
+    help="Source document to generate recommendations")
 args = parser.parse_args()
 document_id = args.document_id
+
 
 def run_query(query):
     from SPARQLWrapper import SPARQLWrapper, JSON
@@ -54,8 +60,9 @@ def get_annotations(document_id):
 
     return miss, annotations, sections
 
-def sections_profile(document_id):
-    profile = set()
+def similar_sections(document_id):
+    similar = []
+    bag_of_words = []
 
     miss, annotations, sections = get_annotations(document_id)
     # import pdb; pdb.set_trace()
@@ -66,50 +73,62 @@ def sections_profile(document_id):
     print '#########'
     print "Sections:", sections
     print
-    frequents = pickle.loads(r.get('FREQS:sections:2'))
 
-    # import pdb; pdb.set_trace()
+    frequents = pickle.loads(r.get('FREQS:sections:'+str(fi_size)))
 
-    for section in sections:
-        for frequent in frequents:
+    for frequent in frequents:
+        bag_of_words.extend(list(frequent))
+
+    counter_bag_of_words = Counter(bag_of_words)
+
+    for frequent in frequents:
+        tfidf = 0
+        for section in sections:
             if section in frequent:
-                # print str((frequent - set([profile])))
-                # profile |= (frequent - set([section]))
-                profile.add(frequent)
+                tf = 1.0
+                idf = math.log(len(frequents) / float((counter_bag_of_words[section] + 1)))
+                tfidf += tf * idf
+        jaccard = len(set(sections) & frequent) / float(len(set(sections) | frequent))
+        similar.append((jaccard, tfidf, frequent))
 
-    print "Profile:"
-    for p in profile:
-        print p
+    return similar
 
-    return profile
-
-def frequent_annotations(document_id):
-    freq_annotations = set()
+def similar_annotations(document_id):
+    similar = []
+    bag_of_words = []
 
     miss, annotations, sections = get_annotations(document_id)
     if annotations == ['0']:
         print "Document has no annotation"
-        return freq_annotations
+        return similar
 
     print
     print "############"
     print "Annotations:", annotations
     print
-    frequents = pickle.loads(r.get('FREQS:uris:2'))
 
-    # import pdb; pdb.set_trace()
+    frequents = pickle.loads(r.get('FREQS:uris:'+str(fi_size)))
 
-    for annotation in annotations:
-        for frequent in frequents:
+
+    for frequent in frequents:
+        bag_of_words.extend(list(frequent))
+
+    counter_bag_of_words = Counter(bag_of_words)
+
+    for frequent in frequents:
+        tfidf = 0
+        for annotation in annotations:
             if annotation in frequent:
-                print frequent
-                freq_annotations |= (frequent - set([annotation]))
-                # recommendations.add(frequent)
+                tf = 1.0
+                idf = math.log(len(frequents) / float((counter_bag_of_words[annotation] + 1)))
+                tfidf += tf * idf
+        jaccard = len(set(annotations) & frequent) / float(len(set(annotations) | frequent))
+        similar.append((jaccard, tfidf, frequent))
 
-    return freq_annotations
+    return similar
 
 
-def recommend(freq_annotations):
+def recommend_sparql(freq_annotations):
 
     i_recommendations = iter(freq_annotations)
     rec = next(i_recommendations)
@@ -127,6 +146,8 @@ def recommend(freq_annotations):
     ORDER BY DESC(?qty)
     LIMIT 10
     """ % (query_where)
+
+    print query
 
     articles = run_query(query)
 
@@ -151,15 +172,25 @@ def main():
 
     print "URL:", url 
 
-    profile = sections_profile(document_id)
+    similar = similar_sections(document_id)
+
+    # import pdb; pdb.set_trace()
+
+    for tfidf, jaccard, frequent in sorted(similar, reverse=True):
+        if tfidf + jaccard > 0:
+            print tfidf, jaccard, frequent
 
     print
-    freq_annotations = frequent_annotations(document_id)
+    similar = similar_annotations(document_id)
 
-    if len(freq_annotations) > 0:
-        articles = recommend(freq_annotations)
-    else:
-        print "Document annotations not found in frequent itemsets"
+    for tfidf, jaccard, frequent in sorted(similar, reverse=True):
+        if tfidf + jaccard > 0:
+            print tfidf, jaccard, frequent
+
+    # if len(freq_annotations) > 0:
+    #     articles = recommend_sparql(freq_annotations)
+    # else:
+    #     print "Document annotations not found in frequent itemsets"
 
     stop = dt.now()
     execution_time = stop - start 
