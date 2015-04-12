@@ -19,12 +19,13 @@ BITCOUNT "BIT_DOC:1436382"
 "BIT_URI:<uri>"
 Bitarray with reads of this annotation
 Ex.:
-BITCOUNT "URI:http://semantica.globo.com/esportes/atleta/69325"
+BITCOUNT "BIT_URI:http://semantica.globo.com/esportes/atleta/69325"
 
 "BIT_SEC:<section>"
 Bitarray with reads of this section
 Ex.:
-BITCOUNT "URI:?????"
+BITCOUNT "BIT_SEC:programas"
+
 
 "DOC_COUNTS"
 Counts of the reads of all documents on this window
@@ -35,3 +36,16 @@ ZREVRANGE "DOC_COUNTS" 0 -1 WITHSCORES
 Counts of the reads of all uris on this window
 Ex.:
 ZREVRANGE "URI_COUNTS" 0 -1 WITHSCORES
+
+
+"URI_DOCS:<uri>"
+List of docs with the <uri> annotation
+Ex.:
+LRANGE "URI_DOCS:http://semantica.globo.com/esportes/atleta/63119" 0 -1
+
+
+"SEC_DOCS:<section>"
+List of docs in this <section> 
+Ex.:
+LRANGE "SEC_DOCS:programas" 0 -1
+
