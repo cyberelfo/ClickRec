@@ -9,6 +9,7 @@ import pickle
 from datetime import datetime as dt
 from collections import Counter
 import math
+import tfidf
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
@@ -17,11 +18,11 @@ max_fi_size = config.getint('main', 'max_fi_size')
 
 fi_size = max_fi_size
 
-parser = argparse.ArgumentParser()
-parser.add_argument("document_id", 
-    help="Source document to generate recommendations")
-args = parser.parse_args()
-document_id = args.document_id
+# parser = argparse.ArgumentParser()
+# parser.add_argument("document_id", 
+#     help="Source document to generate recommendations")
+# args = parser.parse_args()
+# document_id = args.document_id
 
 
 def run_query(query):
@@ -76,20 +77,26 @@ def similar_sections(document_id):
 
     frequents = pickle.loads(r.get('FREQS:sections:'+str(fi_size)))
 
+    d, model, index = tfidf.model(frequents)
+
+    sims = tfidf.query(sections, d, model, index)
+    d_sims = dict(sims) 
     for frequent in frequents:
         bag_of_words.extend(list(frequent))
 
     counter_bag_of_words = Counter(bag_of_words)
 
-    for frequent in frequents:
-        tfidf = 0
-        for section in sections:
-            if section in frequent:
-                tf = 1.0
-                idf = math.log(len(frequents) / float((counter_bag_of_words[section] + 1)))
-                tfidf += tf * idf
+    N = len(frequents)
+    for i, frequent in enumerate(frequents):
+        # tfidf = 0
+        # for section in sections:
+        #     if section in frequent:
+        #         tf = 1.0
+        #         idf = math.log(N / float((counter_bag_of_words[section])))
+        #         tfidf += tf * idf
         jaccard = len(set(sections) & frequent) / float(len(set(sections) | frequent))
-        similar.append((jaccard, tfidf, frequent))
+
+        similar.append((d_sims[i], jaccard, frequent))        
 
     return similar
 
@@ -123,7 +130,7 @@ def similar_annotations(document_id):
                 idf = math.log(len(frequents) / float((counter_bag_of_words[annotation] + 1)))
                 tfidf += tf * idf
         jaccard = len(set(annotations) & frequent) / float(len(set(annotations) | frequent))
-        similar.append((jaccard, tfidf, frequent))
+        similar.append((tfidf, jaccard, frequent))
 
     return similar
 
@@ -159,7 +166,7 @@ def recommend_sparql(freq_annotations):
 
     return articles
 
-def main():
+def calc(document_id):
     global r, s
     print "Program start..."
     start = dt.now()
@@ -198,6 +205,8 @@ def main():
     print
     print "End processing"
     print "Execution time:", execution_time
+
+    return [4,5,6,7]
 
 
 if __name__ == '__main__':
