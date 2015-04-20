@@ -17,6 +17,8 @@ solr_endpoint = config.get('main', 'solr_endpoint')
 max_fi_size = config.getint('main', 'max_fi_size')
 
 fi_size = max_fi_size
+num_results = 10
+num_frequents = 10
 
 def run_query(query):
     from SPARQLWrapper import SPARQLWrapper, JSON
@@ -52,27 +54,10 @@ def get_annotations(document_id):
 
     return miss, annotations, sections
 
-def similar_frequent(document_id, prefix, fi_size):
+def similar_frequent(frequents, query):
     similar = []
 
-    miss, annotations, sections = get_annotations(document_id)
-
-    if prefix == 'sections:':
-        query = sections
-    elif prefix == 'uris:':
-        query = annotations
-
-    if query == ['0']:
-        print "Document has no section"
-        return query
-
-    print
-    print '#########'
-    print "Query:", query
-    print
-
     # import pdb; pdb.set_trace()
-    frequents = pickle.loads(r.get('FREQS:'+prefix+str(fi_size)))
 
     d, model, index = tfidf.model(frequents)
     sims = tfidf.query(query, d, model, index)
@@ -115,34 +100,86 @@ def recommend_tfidf(document_id, itemset, prefix):
 
 def recommend_pages(document_id, prefix, fi_size):
 
-    print
+    documents = []
+    miss, annotations, sections = get_annotations(document_id)
 
     if prefix == 'SECTIONS:':
-        similar_prefix = 'sections:'
+        freqs_prefix = 'sections:'
+        query = sections
     elif prefix == 'ANNOTATIONS:':
-        similar_prefix = 'uris:'
+        freqs_prefix = 'uris:'
+        query = annotations
 
-    similar = similar_frequent(document_id, similar_prefix, fi_size)
+    if query == ['0']:
+        # print "Document has no section"
+        return query
 
-    print "TFIDF JACCARD ITEMSET"
+    frequents = pickle.loads(r.get('FREQS:'+freqs_prefix+str(fi_size)))
+
+    similar = similar_frequent(frequents, query)
+
     for tfidf, jaccard, frequent in sorted(similar, reverse=True):
-        print tfidf, jaccard, frequent
         recommendations = recommend_tfidf(document_id, frequent, prefix)
-        print
         break
 
-    print "TFIDF DOCID URL"
     count = 0
     for tfidf, docid in sorted(recommendations, reverse=True):
         count += 1
-        if count > 10:
+        if count > num_results:
             break
-        print tfidf, docid, r.get("URL:"+docid)
 
-def calc(document_id):
+        documents.append(docid)
+
+    return documents
+
+def recommend_pages_2(document_id, prefix, fi_size):
+
+    documents = []
+
+    itemset = set()
+
+    miss, annotations, sections = get_annotations(document_id)
+
+    if prefix == 'SECTIONS:':
+        freqs_prefix = 'sections:'
+        query = sections
+    elif prefix == 'ANNOTATIONS:':
+        freqs_prefix = 'uris:'
+        query = annotations
+
+    if query == ['0']:
+        # print "Document has no section"
+        return query
+
+    frequents = pickle.loads(r.get('FREQS:'+freqs_prefix+str(fi_size)))
+
+    similar = similar_frequent(frequents, query)
+
+    count = 0
+    for tfidf, jaccard, frequent in sorted(similar, reverse=True):
+        count += 1
+        if count > num_frequents:
+            break
+        itemset |= frequent
+
+    new_itemset = itemset - set(query)
+
+    # import pdb; pdb.set_trace()
+
+    recommendations = recommend_tfidf(document_id, new_itemset, prefix)
+
+    count = 0
+    for tfidf, docid in sorted(recommendations, reverse=True):
+        count += 1
+        if count > num_results:
+            break
+
+        documents.append(docid)
+
+    return documents
+
+def calc(document_id, r_type):
     global r, s
-    print "Program start..."
-    start = dt.now()
 
     s = solr.SolrConnection(solr_endpoint)
 
@@ -150,22 +187,18 @@ def calc(document_id):
 
     url = r.get("URL:"+document_id)
 
-    print "URL:", url 
+    # print "URL:", url 
 
-    recommend_pages(document_id, 'SECTIONS:', fi_size)
+    if r_type == 1:
+        documents = recommend_pages(document_id, 'SECTIONS:', fi_size)
+    elif r_type == 2:
+        documents = recommend_pages_2(document_id, 'SECTIONS:', fi_size)
+    elif r_type == 3:
+        documents = recommend_pages(document_id, 'ANNOTATIONS:', fi_size)
+    elif r_type == 4:
+        documents = recommend_pages_2(document_id, 'ANNOTATIONS:', fi_size)
 
-    # import pdb; pdb.set_trace()
-
-    recommend_pages(document_id, 'ANNOTATIONS:', fi_size)
-
-    stop = dt.now()
-    execution_time = stop - start 
-
-    print
-    print "End processing"
-    print "Execution time:", execution_time
-
-    return [4,5,6,7]
+    return documents
 
 
 if __name__ == '__main__':
@@ -178,4 +211,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     document_id = args.document_id
 
-    calc(document_id)
+    print "Program start..."
+    start = dt.now()
+
+    print calc(document_id, 1)
+    print calc(document_id, 2)
+    print calc(document_id, 3)
+    print calc(document_id, 4)
+
+    stop = dt.now()
+    execution_time = stop - start 
+
+    print
+    print "End processing"
+    print "Execution time:", execution_time

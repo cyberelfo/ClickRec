@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 @app.route("/recommend/<doc_id>")
 def recommend(doc_id):
-	result = sbr.calc(doc_id)
+	result = sbr.calc(doc_id, 1)
 	return jsonify(result=result)
 
 if __name__ == "__main__":
