@@ -1,4 +1,5 @@
 Redis keys:
+----------
 
 "ANNOTATIONS:<doc_id_number>" 
 List of annotations from a document
@@ -49,3 +50,13 @@ List of docs in this <section>
 Ex.:
 LRANGE "SEC_DOCS:programas" 0 -1
 
+Using flask
+-----------
+
+Start the server by running the command below:
+
+$ ./server.py
+
+Then call the API, like below:
+
+$ curl -i http://127.0.0.1:5001/recommend/1436587
