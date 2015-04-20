@@ -8,8 +8,8 @@ def model(frequents):
 	corpus = [d.doc2bow(doc) for doc in frequents]
 
 	# model = models.LogEntropyModel(corpus)
-	model = models.TfidfModel(corpus)
 	# model = models.LsiModel(corpus)
+	model = models.TfidfModel(corpus)
 	index = similarities.MatrixSimilarity(model[corpus])
 
 	return d, model, index

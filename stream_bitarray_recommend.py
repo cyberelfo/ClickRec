@@ -18,13 +18,6 @@ max_fi_size = config.getint('main', 'max_fi_size')
 
 fi_size = max_fi_size
 
-# parser = argparse.ArgumentParser()
-# parser.add_argument("document_id", 
-#     help="Source document to generate recommendations")
-# args = parser.parse_args()
-# document_id = args.document_id
-
-
 def run_query(query):
     from SPARQLWrapper import SPARQLWrapper, JSON
     _sparql = SPARQLWrapper("http://staging.semantica.globoi.com/sparql/")
@@ -53,21 +46,19 @@ def get_annotations(document_id):
             if 'section' in response.results[0]:
                 sections = response.results[0]['section']
 
-        # if annotations == ['0']:
-        #     print "ANNOTATIONS:"+document_id
         r.rpush("ANNOTATIONS:"+document_id, *annotations)
         r.rpush("SECTIONS:"+document_id, *sections)
         miss = 1
 
     return miss, annotations, sections
 
-def similar_sections(document_id):
+def similar_frequent_sections(document_id):
     similar = []
-    bag_of_words = []
 
     miss, annotations, sections = get_annotations(document_id)
     # import pdb; pdb.set_trace()
     if sections == ['0']:
+        print "Document has no section"
         return sections
 
     print
@@ -78,31 +69,17 @@ def similar_sections(document_id):
     frequents = pickle.loads(r.get('FREQS:sections:'+str(fi_size)))
 
     d, model, index = tfidf.model(frequents)
-
     sims = tfidf.query(sections, d, model, index)
     d_sims = dict(sims) 
-    for frequent in frequents:
-        bag_of_words.extend(list(frequent))
 
-    counter_bag_of_words = Counter(bag_of_words)
-
-    N = len(frequents)
     for i, frequent in enumerate(frequents):
-        # tfidf = 0
-        # for section in sections:
-        #     if section in frequent:
-        #         tf = 1.0
-        #         idf = math.log(N / float((counter_bag_of_words[section])))
-        #         tfidf += tf * idf
         jaccard = len(set(sections) & frequent) / float(len(set(sections) | frequent))
-
         similar.append((d_sims[i], jaccard, frequent))        
 
     return similar
 
-def similar_annotations(document_id):
+def similar_frequent_annotations(document_id):
     similar = []
-    bag_of_words = []
 
     miss, annotations, sections = get_annotations(document_id)
     if annotations == ['0']:
@@ -116,55 +93,61 @@ def similar_annotations(document_id):
 
     frequents = pickle.loads(r.get('FREQS:uris:'+str(fi_size)))
 
+    d, model, index = tfidf.model(frequents)
+    sims = tfidf.query(annotations, d, model, index)
+    d_sims = dict(sims) 
 
-    for frequent in frequents:
-        bag_of_words.extend(list(frequent))
-
-    counter_bag_of_words = Counter(bag_of_words)
-
-    for frequent in frequents:
-        tfidf = 0
-        for annotation in annotations:
-            if annotation in frequent:
-                tf = 1.0
-                idf = math.log(len(frequents) / float((counter_bag_of_words[annotation] + 1)))
-                tfidf += tf * idf
+    for i, frequent in enumerate(frequents):
         jaccard = len(set(annotations) & frequent) / float(len(set(annotations) | frequent))
-        similar.append((tfidf, jaccard, frequent))
+        similar.append((d_sims[i], jaccard, frequent))
 
     return similar
 
 
-def recommend_sparql(freq_annotations):
+def recommend_tfidf(document_id, itemset, prefix):
 
-    i_recommendations = iter(freq_annotations)
-    rec = next(i_recommendations)
-    query_where = '{?s ?p <'+rec+'> }\n'
-    for rec in i_recommendations:
-        query_where += 'UNION {?s ?p <'+rec+'> }\n'
+    window_size = 100000
+    vals = []
+    recommendations = []
+    keys = r.zrevrangebyscore('DOC_COUNTS', '+inf', window_size * 0.01)
 
-    query = """ 
-    SELECT ?s count(?s) as ?qty
-    FROM <http://semantica.globo.com/esportes/>
-    WHERE {?s a <http://semantica.globo.com/esportes/MateriaEsporte> .
-           { %s }
-    } 
-    GROUP BY ?s
-    ORDER BY DESC(?qty)
-    LIMIT 10
-    """ % (query_where)
+    # Avoid recommending the document the user just saw.
+    try:
+        keys.remove('BIT_DOC:'+document_id)
+    except ValueError:
+        pass  # do nothing!
 
-    print query
+    for k in keys:
+        docid = k[len('BIT_DOC:'):]
+        vals.append(r.lrange(prefix+docid, 0, -1))
 
-    articles = run_query(query)
+    d, model, index = tfidf.model(vals)
+    sims = tfidf.query(itemset, d, model, index)
+    d_sims = dict(sims)
+
+    # import pdb; pdb.set_trace()
+
+    for i, k in enumerate(keys):
+        recommendations.append((d_sims[i], k[len('BIT_DOC:'):]))
+
+    return recommendations
+
+
+def recommend_pages(document_id, similar, prefix):
 
     print
-    print "Qty annotations - News article URL"
-    print "----------------------------------"
-    for article in articles:
-        print article['qty']['value'], article['s']['value']
+    for tfidf, jaccard, frequent in sorted(similar, reverse=True):
+        print tfidf, jaccard, frequent
+        recommendations = recommend_tfidf(document_id, frequent, prefix)
+        print
+        break
 
-    return articles
+    count = 0
+    for tfidf, docid in sorted(recommendations, reverse=True):
+        count += 1
+        if count > 10:
+            break
+        print tfidf, docid, r.get("URL:"+docid)
 
 def calc(document_id):
     global r, s
@@ -179,25 +162,15 @@ def calc(document_id):
 
     print "URL:", url 
 
-    similar = similar_sections(document_id)
+    similar = similar_frequent_sections(document_id)
+
+    recommend_pages(document_id, similar, 'SECTIONS:')
 
     # import pdb; pdb.set_trace()
 
-    for tfidf, jaccard, frequent in sorted(similar, reverse=True):
-        if tfidf + jaccard > 0:
-            print tfidf, jaccard, frequent
+    similar = similar_frequent_annotations(document_id)
 
-    print
-    similar = similar_annotations(document_id)
-
-    for tfidf, jaccard, frequent in sorted(similar, reverse=True):
-        if tfidf + jaccard > 0:
-            print tfidf, jaccard, frequent
-
-    # if len(freq_annotations) > 0:
-    #     articles = recommend_sparql(freq_annotations)
-    # else:
-    #     print "Document annotations not found in frequent itemsets"
+    recommend_pages(document_id, similar, 'ANNOTATIONS:')
 
     stop = dt.now()
     execution_time = stop - start 
@@ -210,6 +183,13 @@ def calc(document_id):
 
 
 if __name__ == '__main__':
-    main()
     # import cProfile
     # cProfile.run('main()')
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("document_id", 
+        help="Source document to generate recommendations")
+    args = parser.parse_args()
+    document_id = args.document_id
+
+    calc(document_id)
