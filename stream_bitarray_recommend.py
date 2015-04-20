@@ -52,57 +52,37 @@ def get_annotations(document_id):
 
     return miss, annotations, sections
 
-def similar_frequent_sections(document_id):
+def similar_frequent(document_id, prefix, fi_size):
     similar = []
 
     miss, annotations, sections = get_annotations(document_id)
-    # import pdb; pdb.set_trace()
-    if sections == ['0']:
+
+    if prefix == 'sections:':
+        query = sections
+    elif prefix == 'uris:':
+        query = annotations
+
+    if query == ['0']:
         print "Document has no section"
-        return sections
+        return query
 
     print
     print '#########'
-    print "Sections:", sections
+    print "Query:", query
     print
 
-    frequents = pickle.loads(r.get('FREQS:sections:'+str(fi_size)))
+    # import pdb; pdb.set_trace()
+    frequents = pickle.loads(r.get('FREQS:'+prefix+str(fi_size)))
 
     d, model, index = tfidf.model(frequents)
-    sims = tfidf.query(sections, d, model, index)
+    sims = tfidf.query(query, d, model, index)
     d_sims = dict(sims) 
 
     for i, frequent in enumerate(frequents):
-        jaccard = len(set(sections) & frequent) / float(len(set(sections) | frequent))
+        jaccard = len(set(query) & frequent) / float(len(set(query) | frequent))
         similar.append((d_sims[i], jaccard, frequent))        
 
     return similar
-
-def similar_frequent_annotations(document_id):
-    similar = []
-
-    miss, annotations, sections = get_annotations(document_id)
-    if annotations == ['0']:
-        print "Document has no annotation"
-        return similar
-
-    print
-    print "############"
-    print "Annotations:", annotations
-    print
-
-    frequents = pickle.loads(r.get('FREQS:uris:'+str(fi_size)))
-
-    d, model, index = tfidf.model(frequents)
-    sims = tfidf.query(annotations, d, model, index)
-    d_sims = dict(sims) 
-
-    for i, frequent in enumerate(frequents):
-        jaccard = len(set(annotations) & frequent) / float(len(set(annotations) | frequent))
-        similar.append((d_sims[i], jaccard, frequent))
-
-    return similar
-
 
 def recommend_tfidf(document_id, itemset, prefix):
 
@@ -133,15 +113,25 @@ def recommend_tfidf(document_id, itemset, prefix):
     return recommendations
 
 
-def recommend_pages(document_id, similar, prefix):
+def recommend_pages(document_id, prefix, fi_size):
 
     print
+
+    if prefix == 'SECTIONS:':
+        similar_prefix = 'sections:'
+    elif prefix == 'ANNOTATIONS:':
+        similar_prefix = 'uris:'
+
+    similar = similar_frequent(document_id, similar_prefix, fi_size)
+
+    print "TFIDF JACCARD ITEMSET"
     for tfidf, jaccard, frequent in sorted(similar, reverse=True):
         print tfidf, jaccard, frequent
         recommendations = recommend_tfidf(document_id, frequent, prefix)
         print
         break
 
+    print "TFIDF DOCID URL"
     count = 0
     for tfidf, docid in sorted(recommendations, reverse=True):
         count += 1
@@ -162,15 +152,11 @@ def calc(document_id):
 
     print "URL:", url 
 
-    similar = similar_frequent_sections(document_id)
-
-    recommend_pages(document_id, similar, 'SECTIONS:')
+    recommend_pages(document_id, 'SECTIONS:', fi_size)
 
     # import pdb; pdb.set_trace()
 
-    similar = similar_frequent_annotations(document_id)
-
-    recommend_pages(document_id, similar, 'ANNOTATIONS:')
+    recommend_pages(document_id, 'ANNOTATIONS:', fi_size)
 
     stop = dt.now()
     execution_time = stop - start 
