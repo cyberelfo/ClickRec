@@ -59,9 +59,12 @@ def main():
 
     logging.info("Recommending and checking...")
 
-    hit = 0
-    hit_topnews = 0
+
     count = 0
+    hit_clickrec = 0
+    hit_topnews = 0
+    hit_clickrec_a = 0
+    hit_topnews_a = 0
 
     same_hit_rec = 0
     more_hit_rec = 0
@@ -92,27 +95,29 @@ def main():
 
         logging.debug("User path: %s", documents)
 
-        recommendation = sbr.calc(head, 1)
+        recommendation = sbr.calc(head, 2)
 
         logging.debug("Recs: %s", recommendation)
 
         intersect_rec = set(recommendation) & tail
 
+        hit_clickrec_a += len(intersect_rec)
         if len(intersect_rec) > 0:
-            hit += 1
+            hit_clickrec += 1
             logging.debug("Hit! Size: %s", len(intersect_rec))
 
         logging.debug("TopNews: %s", topnews)
 
         intersect_topnews = set(topnews) & tail
 
+        hit_topnews_a += len(intersect_topnews)
         if len(intersect_topnews) > 0:
             hit_topnews += 1
             logging.debug("Hit! Size: %s", len(intersect_topnews))
 
 
         if count % 100 == 0:
-            logging.info("Total users: %s ClickRec Hits: %s TopNews Hits: %s", count, hit, hit_topnews)
+            logging.info("Total users: %s ClickRec Hits: %s TopNews Hits: %s", count, hit_clickrec, hit_topnews)
 
         if len(intersect_rec) > 0:
             if intersect_rec == intersect_topnews:
@@ -133,7 +138,9 @@ def main():
 
     logging.info('')
     logging.info('### Results ###')
-    logging.info("Total users: %s Hits: %s Hits TopNews: %s", count, hit, hit_topnews)
+    logging.info("Total users: %s Hits ClickRec: %s Hits TopNews: %s", count, hit_clickrec, hit_topnews)
+    logging.info("Total users: %s Hits ClickRec Acc: %s Hits TopNews Acc: %s", count, hit_clickrec_a, 
+                hit_topnews_a)
     logging.info("ClickRec performance")
     logging.info("same_hit: %s more_hit: %s less_hit: %s", same_hit_rec, more_hit_rec, less_hit_rec)
     logging.info("TopNews performance")
