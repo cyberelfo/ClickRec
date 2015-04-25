@@ -49,7 +49,7 @@ def main():
             and filename = '%s'
             group by user_id
             having count(*) >= %s
-            -- limit 1000
+            limit 1000
             ;
         """ % (product_id, filename, user_path_size)
 
@@ -80,10 +80,10 @@ def main():
         sql = """ select document_id 
                 from stream 
                 where product_id = 2
-                and filename = 'rt-actions-read-2015_01_14_00.log'
+                and filename = '%s'
                 and user_id = %s
                 order by stream_datetime;
-            """ % (user[0])
+            """ % (filename, user[0])
 
         cursor.execute(sql)
         documents = cursor.fetchall()
@@ -95,7 +95,7 @@ def main():
 
         logging.debug("User path: %s", documents)
 
-        recommendation = sbr.calc(head, 2)
+        recommendation = sbr.calc(head, 3)
 
         logging.debug("Recs: %s", recommendation)
 

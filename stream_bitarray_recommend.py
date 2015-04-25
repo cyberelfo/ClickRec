@@ -99,7 +99,7 @@ def recommend_tfidf(document_id, itemset, prefix):
 
 
 def recommend_pages(document_id, prefix, fi_size):
-
+    """Recommend by similarity to most similar frequent itemset"""
     documents = []
     miss, annotations, sections = get_annotations(document_id)
 
@@ -132,7 +132,8 @@ def recommend_pages(document_id, prefix, fi_size):
 
     return documents
 
-def recommend_pages_2(document_id, prefix, fi_size):
+def recommend_pages_complement(document_id, prefix, fi_size):
+    """Recommend by similarity to complement of N similar itemsets"""
 
     documents = []
 
@@ -192,11 +193,11 @@ def calc(document_id, r_type):
     if r_type == 1:
         documents = recommend_pages(document_id, 'SECTIONS:', fi_size)
     elif r_type == 2:
-        documents = recommend_pages_2(document_id, 'SECTIONS:', fi_size)
+        documents = recommend_pages_complement(document_id, 'SECTIONS:', fi_size)
     elif r_type == 3:
         documents = recommend_pages(document_id, 'ANNOTATIONS:', fi_size)
     elif r_type == 4:
-        documents = recommend_pages_2(document_id, 'ANNOTATIONS:', fi_size)
+        documents = recommend_pages_complement(document_id, 'ANNOTATIONS:', fi_size)
 
     return documents
 
