@@ -20,7 +20,7 @@ config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
 
 path = config.get('main', 'path')
-filename = config.get('main', 'filename')
+stream_filename = config.get('main', 'filename')
 local_file = config.getboolean('main', 'local_file')
 save_results = config.getboolean('main', 'save_results')
 solr_endpoint = config.get('main', 'solr_endpoint')
@@ -29,6 +29,7 @@ keep_heavy_users = config.getboolean('main', 'keep_heavy_users')
 remove_bounce_users = config.getboolean('main', 'remove_bounce_users')
 max_fi_size = config.getint('main', 'max_fi_size')
 generate_fis_interval = config.getint('main', 'generate_fis_interval')
+redis_db = config.getint('main', 'redis_db')
 
 hadoop_server = config.get('hadoop', 'hadoop_server')
 hadoop_port = config.get('hadoop', 'hadoop_port')
@@ -554,7 +555,18 @@ def process_stream_file(stream_sorted, selected_product_id):
                 has_fis = True
                 next_generate_fis = next_round_datetime(cur_datetime + timedelta(seconds=1), generate_fis_interval)
 
-                # import pdb; pdb.set_trace()
+
+
+    if max_files == 1:
+        pipe1.execute()
+
+        count_and_delete_pages()
+        count_and_delete_uris()
+        count_and_delete_sections()
+
+        frequent_pages = generate_fis(max_fi_size, next_generate_fis, 'pages')
+        frequent_sections = generate_fis(max_fi_size, next_generate_fis, 'sections')
+        frequent_uris = generate_fis(max_fi_size, next_generate_fis, 'uris')
 
 
 def fis_analize():
@@ -664,7 +676,9 @@ def main():
 
     s = solr.SolrConnection(solr_endpoint)
 
-    r = redis.StrictRedis(host='localhost', port=6379, db=0)
+    r = redis.StrictRedis(host='localhost', port=6379, db=redis_db)
+
+    # import pdb; pdb.set_trace()
 
     print "Cleaning Redis..."
     clean_redis()
@@ -686,7 +700,10 @@ def main():
         execution_id = cursor.lastrowid
         db.commit()
 
-    file_list = get_files(local_file)
+    if max_files == 1:
+        file_list = [path+stream_filename]    
+    else:
+        file_list = get_files(local_file)
 
     for num_file, filename in enumerate(file_list):
         if num_file >= max_files:

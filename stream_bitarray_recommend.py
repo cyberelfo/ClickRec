@@ -9,16 +9,15 @@ import pickle
 from datetime import datetime as dt
 from collections import Counter
 import math
+import argparse
 import tfidf
 
 config = ConfigParser.ConfigParser()
 config.read("./stream.ini")
 solr_endpoint = config.get('main', 'solr_endpoint')
-max_fi_size = config.getint('main', 'max_fi_size')
+redis_db = config.getint('main', 'redis_db')
 
-fi_size = max_fi_size
 num_results = 10
-num_frequents = 10
 
 def run_query(query):
     from SPARQLWrapper import SPARQLWrapper, JSON
@@ -69,12 +68,13 @@ def similar_frequent(frequents, query):
 
     return similar
 
-def recommend_tfidf(document_id, itemset, prefix):
+def recommend_tfidf(document_id, itemset, prefix, window_size):
 
-    window_size = 100000
     vals = []
     recommendations = []
     keys = r.zrevrangebyscore('DOC_COUNTS', '+inf', window_size * 0.01)
+
+    # import pdb; pdb.set_trace()
 
     # Avoid recommending the document the user just saw.
     try:
@@ -86,11 +86,13 @@ def recommend_tfidf(document_id, itemset, prefix):
         docid = k[len('BIT_DOC:'):]
         vals.append(r.lrange(prefix+docid, 0, -1))
 
+    if vals == []:
+        return []
+
     d, model, index = tfidf.model(vals)
+
     sims = tfidf.query(itemset, d, model, index)
     d_sims = dict(sims)
-
-    # import pdb; pdb.set_trace()
 
     for i, k in enumerate(keys):
         recommendations.append((d_sims[i], k[len('BIT_DOC:'):]))
@@ -98,7 +100,7 @@ def recommend_tfidf(document_id, itemset, prefix):
     return recommendations
 
 
-def recommend_pages(document_id, prefix, fi_size):
+def recommend_pages(document_id, fi_size, num_frequents, window_size, prefix):
     """Recommend by similarity to most similar frequent itemset"""
     documents = []
     miss, annotations, sections = get_annotations(document_id)
@@ -114,12 +116,15 @@ def recommend_pages(document_id, prefix, fi_size):
         # print "Document has no section"
         return query
 
+    if not r.exists('FREQS:'+freqs_prefix+str(fi_size)):
+        return ['0']
+
     frequents = pickle.loads(r.get('FREQS:'+freqs_prefix+str(fi_size)))
 
     similar = similar_frequent(frequents, query)
 
     for tfidf, jaccard, frequent in sorted(similar, reverse=True):
-        recommendations = recommend_tfidf(document_id, frequent, prefix)
+        recommendations = recommend_tfidf(document_id, frequent, prefix, window_size)
         break
 
     count = 0
@@ -132,7 +137,7 @@ def recommend_pages(document_id, prefix, fi_size):
 
     return documents
 
-def recommend_pages_complement(document_id, prefix, fi_size):
+def recommend_pages_complement(document_id, fi_size, num_frequents, window_size, prefix):
     """Recommend by similarity to complement of N similar itemsets"""
 
     documents = []
@@ -167,7 +172,7 @@ def recommend_pages_complement(document_id, prefix, fi_size):
 
     # import pdb; pdb.set_trace()
 
-    recommendations = recommend_tfidf(document_id, new_itemset, prefix)
+    recommendations = recommend_tfidf(document_id, new_itemset, prefix, window_size)
 
     count = 0
     for tfidf, docid in sorted(recommendations, reverse=True):
@@ -179,25 +184,25 @@ def recommend_pages_complement(document_id, prefix, fi_size):
 
     return documents
 
-def calc(document_id, r_type):
+def calc(document_id, fi_size, num_frequents, window_size, r_type):
     global r, s
 
     s = solr.SolrConnection(solr_endpoint)
 
-    r = redis.StrictRedis(host='localhost', port=6379, db=0)
+    r = redis.StrictRedis(host='localhost', port=6379, db=redis_db)
 
     url = r.get("URL:"+document_id)
 
     # print "URL:", url 
 
     if r_type == 1:
-        documents = recommend_pages(document_id, 'SECTIONS:', fi_size)
+        documents = recommend_pages(document_id, fi_size, num_frequents, window_size, 'SECTIONS:')
     elif r_type == 2:
-        documents = recommend_pages_complement(document_id, 'SECTIONS:', fi_size)
+        documents = recommend_pages_complement(document_id, fi_size, num_frequents, window_size, 'SECTIONS:')
     elif r_type == 3:
-        documents = recommend_pages(document_id, 'ANNOTATIONS:', fi_size)
+        documents = recommend_pages(document_id, fi_size, num_frequents, window_size, 'ANNOTATIONS:')
     elif r_type == 4:
-        documents = recommend_pages_complement(document_id, 'ANNOTATIONS:', fi_size)
+        documents = recommend_pages_complement(document_id, fi_size, num_frequents, window_size, 'ANNOTATIONS:')
 
     return documents
 
@@ -212,13 +217,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     document_id = args.document_id
 
+    fi_size = 4
+    num_frequents = 10
+    window_size = 250000
+
     print "Program start..."
     start = dt.now()
 
-    print calc(document_id, 1)
-    print calc(document_id, 2)
-    print calc(document_id, 3)
-    print calc(document_id, 4)
+    print calc(document_id, fi_size, num_frequents, window_size, 1)
+    print calc(document_id, fi_size, num_frequents, window_size, 2)
+    print calc(document_id, fi_size, num_frequents, window_size, 3)
+    print calc(document_id, fi_size, num_frequents, window_size, 4)
 
     stop = dt.now()
     execution_time = stop - start 
