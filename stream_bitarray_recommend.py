@@ -157,6 +157,8 @@ def recommend_pages_complement(document_id, fi_size, num_frequents, window_size,
         # print "Document has no section"
         return query
 
+    # import pdb; pdb.set_trace()
+
     frequents = pickle.loads(r.get('FREQS:'+freqs_prefix+str(fi_size)))
 
     similar = similar_frequent(frequents, query)

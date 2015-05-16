@@ -15,7 +15,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 SET UNIQUE_CHECKS = 0;
 SET sql_log_bin = 0;
 
-load data local infile '/Users/franklin/Downloads/stream/rt-actions-read-2015_01_14_14.log' 
+load data local infile '/Users/franklin/Downloads/stream/rt-actions-read-2015_01_14_23.log' 
 INTO TABLE stream COLUMNS TERMINATED BY ',' LINES TERMINATED BY '\n'
 (`product_id`, `type`, `document_id`, `provider_id`, `user_id`, `timestamp`);
 
@@ -24,7 +24,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 SET sql_log_bin = 1;
 
 update stream
-set filename = 'rt-actions-read-2015_01_14_14.log',
+set filename = 'rt-actions-read-2015_01_14_23.log',
 stream_datetime = FROM_UNIXTIME(SUBSTR(timestamp,1, 10))
 where filename is null;
 
