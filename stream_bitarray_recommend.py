@@ -121,6 +121,9 @@ def recommend_pages(document_id, fi_size, num_frequents, window_size, prefix):
 
     frequents = pickle.loads(r.get('FREQS:'+freqs_prefix+str(fi_size)))
 
+    if len(frequents) < 2:
+        return ['0']
+
     similar = similar_frequent(frequents, query)
 
     for tfidf, jaccard, frequent in sorted(similar, reverse=True):
@@ -159,7 +162,13 @@ def recommend_pages_complement(document_id, fi_size, num_frequents, window_size,
 
     # import pdb; pdb.set_trace()
 
+    if not r.exists('FREQS:'+freqs_prefix+str(fi_size)):
+        return ['0']
+
     frequents = pickle.loads(r.get('FREQS:'+freqs_prefix+str(fi_size)))
+
+    if len(frequents) < 2:
+        return ['0']
 
     similar = similar_frequent(frequents, query)
 

@@ -154,7 +154,7 @@ def run_experiment(sample_users, topnews, experiment_type, fi_size, num_frequent
     logging.info(">> Execution time: %s", execution_time)
 
 def main():
-    global cursor
+    global cursor, db
     # set up logging to file - see previous section for more details
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',

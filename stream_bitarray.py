@@ -160,6 +160,9 @@ def slide_window(size, document_id, user_id, timestamp):
     user_index = users_dict[user_id]
     user_visit_document(user_index, document_id)
 
+    # import pdb; pdb.set_trace()
+
+
 def recommend(document_id):
     recommendations = set()
     for itemset in frequents[2]:
@@ -377,8 +380,6 @@ def process_stream_file(stream_sorted, selected_product_id):
         if product_id == selected_product_id:
             num_transactions += 1
             cur_datetime = dt.fromtimestamp(int(timestamp[:10]))
-            # if num_transactions == 794668:
-            #     import pdb; pdb.set_trace()
             slide_window(window_size, int(document_id), int(user_id), timestamp)
 
             if num_transactions % 1000 == 0:
