@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import timeit
+from datetime import datetime as dt
+from datetime import timedelta
 import csv
 import time
 from pprint import pprint
@@ -127,8 +128,8 @@ def slide_window(size, document_id, user_id):
 
 if __name__ == '__main__':
 
-    start = timeit.default_timer()
-    start_t = timeit.default_timer()
+    start = dt.now()
+    start_t = dt.now()
 
     f = open(path+filename, 'rb')
 
@@ -144,20 +145,20 @@ if __name__ == '__main__':
         else:
             slide_window(row[0], row[1][4], row[1][2])
         if row[0] % 1000 == 0:
-            stop_t = timeit.default_timer()
+            stop_t = dt.now()
             tempo_execucao = stop_t - start_t
             print row[0], "- Tempo de execucao:", \
-                time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
+                tempo_execucao, \
                 "Window size:", len(users), "Pages:", len(dictionary)
             start_t = stop_t
 
     f.close()
 
-    stop = timeit.default_timer()
+    stop = dt.now()
     tempo_execucao = stop - start 
 
     # pprint(dictionary)
     # print users
 
     print "Fim processamento"
-    print "Tempo de execucao:", time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao))
+    print "Tempo de execucao:", tempo_execucao

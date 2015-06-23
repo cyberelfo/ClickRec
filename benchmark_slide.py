@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import timeit
+from datetime import datetime as dt
+from datetime import timedelta
 import csv
 import time
 from pprint import pprint
@@ -67,7 +68,7 @@ def load_window(size, document_id, user_id):
             dictionary[document_id][a] = 1
             # print "Update!"
         else:
-            dictionary[document_id] = bitarray([False] * (size))
+            dictionary[document_id] = bitarray([False] * (size - 1))
             dictionary[document_id][a] = 1
             # print "New!"
 
@@ -86,14 +87,16 @@ def load_window(size, document_id, user_id):
             dictionary[document_id].extend([True])
 
 def slide_window(size, document_id, user_id):
+    # import pdb; pdb.set_trace()
+
     if user_id in users:
-        a = users.index(user_id)
+        i = users.index(user_id)
         if document_id in dictionary:
-            dictionary[document_id][a] = 1
+            dictionary[document_id][i] = 1
             # print "Update!"
         else:
             dictionary[document_id] = bitarray([False] * (size))
-            dictionary[document_id][a] = 1
+            dictionary[document_id][i] = 1
             # print "New!"
     else:
         updated = False
@@ -116,38 +119,41 @@ def slide_window(size, document_id, user_id):
             dictionary[document_id] = bitarray([False] * (size - 1))
             dictionary[document_id].extend([True])
 
+
+
 if __name__ == '__main__':
 
-    start = timeit.default_timer()
-    start_t = timeit.default_timer()
+    start = dt.now()
+    start_t = dt.now()
 
     f = open(path+filename, 'rb')
 
     reader = csv.reader(f)
 
     for row in enumerate(reader):
-        # print row
         if num_transactions > 0 and row[0] > num_transactions: 
             break
         if len(users) < window_size:
             load_window(len(users), row[1][4], row[1][2])
         else:
-            slide_window(row[0], row[1][4], row[1][2])
+            slide_window(window_size, row[1][4], row[1][2])
         if row[0] % 1000 == 0:
-            stop_t = timeit.default_timer()
+            stop_t = dt.now()
             tempo_execucao = stop_t - start_t
             print row[0], "- Tempo de execucao:", \
-                time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao)), \
+                tempo_execucao, \
                 "Window size:", len(users), "Pages:", len(dictionary)
+            # import pdb; pdb.set_trace()
+
             start_t = stop_t
 
     f.close()
 
-    stop = timeit.default_timer()
+    stop = dt.now()
     tempo_execucao = stop - start 
 
     # pprint(dictionary)
     # print users
 
     print "Fim processamento"
-    print "Tempo de execucao:", time.strftime('%Hhs %Mmin %Sseg', time.gmtime(tempo_execucao))
+    print "Tempo de execucao:", tempo_execucao
